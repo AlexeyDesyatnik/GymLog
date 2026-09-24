@@ -200,3 +200,210 @@ input:focus-visible {
   width: 100%;
   font-weight: 600;
 }
+
+a.workout-date {
+  color: inherit;
+  text-decoration: none;
+  min-height: 44px;
+  flex: 1 1 auto;
+}
+
+/* Workout screen */
+
+.back {
+  align-self: flex-start;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  padding-block: 6px;
+}
+
+.workout-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.entries,
+.sets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.entries {
+  gap: 12px;
+}
+
+.entry {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.entry-name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.sets {
+  gap: 6px;
+}
+
+.set {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-block: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.set-values,
+.add-set {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.set-number {
+  min-width: 18px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.num-input,
+.text-input,
+.comment-input {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 44px;
+  padding: 0 10px;
+}
+
+.num-input {
+  width: 72px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.num-input.reps {
+  width: 56px;
+}
+
+.text-input {
+  width: 100%;
+}
+
+.comment-input {
+  font-size: 15px;
+  margin-left: 24px;
+  width: calc(100% - 24px);
+}
+
+.num-input[aria-invalid="true"],
+.text-input[aria-invalid="true"] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.unit {
+  color: var(--muted);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.chip-button {
+  margin-left: auto;
+  font: 500 14px/1 var(--font);
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip-button.filled {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.rpe-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+  margin-left: 24px;
+}
+
+.rpe-option {
+  font: 500 15px/1 var(--font);
+  font-variant-numeric: tabular-nums;
+  min-height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.rpe-option.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.rpe-option.clear {
+  grid-column: span 2;
+  color: var(--muted);
+}
+
+.add-comment {
+  align-self: flex-start;
+  margin-left: 24px;
+  font: 14px/1 var(--font);
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.add-set {
+  padding-top: 4px;
+}
+
+.add-set .button {
+  margin-left: auto;
+}
+
+.add-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.chip-button:focus-visible,
+.rpe-option:focus-visible,
+.add-comment:focus-visible,
+.back:focus-visible,
+a.workout-date:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

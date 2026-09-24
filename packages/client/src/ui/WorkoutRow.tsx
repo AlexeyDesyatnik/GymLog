@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { localDate, type LocalDate } from "@gymlog/shared";
 import type { Workout } from "../journal/journal.ts";
 import { formatWorkoutDate } from "./format.ts";
+import { workoutHref } from "./useRoute.ts";
 
 interface WorkoutRowProps {
   workout: Workout;
@@ -77,10 +78,10 @@ export function WorkoutRow({ workout, today, onChangeDate, onDelete }: WorkoutRo
 
   return (
     <li className="workout">
-      <div className="workout-date">
+      <a className="workout-date" href={workoutHref(workout.id)}>
         <span>{label}</span>
         {workout.date === today ? <span className="today">сегодня</span> : null}
-      </div>
+      </a>
       <div className="actions">
         <button className="button quiet" type="button" onClick={() => setMode("changing-date")}>
           Изменить дату

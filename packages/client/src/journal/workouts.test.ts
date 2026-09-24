@@ -1,13 +1,7 @@
 import { expect, test } from "vitest";
 import { localDate } from "@gymlog/shared";
 import { openJournal } from "./journal.ts";
-
-let journalCount = 0;
-
-function freshJournal() {
-  let clock = 1_000;
-  return openJournal({ name: `journal-test-${++journalCount}`, now: () => clock++ });
-}
+import { freshJournal, uniqueJournalName } from "./testing.ts";
 
 test("a created Workout is listed with its date", async () => {
   const journal = freshJournal();
@@ -64,7 +58,7 @@ test("a deleted Workout is no longer listed", async () => {
 });
 
 test("Workouts survive closing and reopening the Journal", async () => {
-  const name = `journal-test-reopen-${++journalCount}`;
+  const name = uniqueJournalName();
   const first = openJournal({ name });
   const kept = await first.createWorkout(localDate("2026-09-24"));
   const deleted = await first.createWorkout(localDate("2026-09-25"));
