@@ -1,6 +1,9 @@
 import type { LocalDate } from "./local-date.ts";
 
-/** Fields every synced record carries (parent spec, Records). */
+/**
+ * Fields every synced record carries (parent spec, Records). The owner is added
+ * together with sign-in in the sync ticket.
+ */
 interface SyncedRecord {
   /** Generated on the client, so resending a record never duplicates it. */
   id: string;

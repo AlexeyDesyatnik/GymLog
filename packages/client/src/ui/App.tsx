@@ -2,11 +2,14 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { localDate, localDateOf } from "@gymlog/shared";
 import type { Journal, Workout } from "../journal/journal.ts";
 import { WorkoutRow } from "./WorkoutRow.tsx";
+import { useToday } from "./useToday.ts";
 
 export function App({ journal }: { journal: Journal }) {
-  const today = localDateOf(new Date());
+  const today = useToday();
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
-  const [newDate, setNewDate] = useState<string>(today);
+  /** The date the user picked for a new Workout; until they pick one, it's today. */
+  const [chosenDate, setChosenDate] = useState<string | null>(null);
+  const newDate = chosenDate ?? today;
 
   const reload = useCallback(async () => {
     setWorkouts(await journal.listWorkouts());
@@ -18,8 +21,9 @@ export function App({ journal }: { journal: Journal }) {
 
   async function create(event: FormEvent) {
     event.preventDefault();
-    if (!newDate) return;
-    await journal.createWorkout(localDate(newDate));
+    const date = chosenDate ?? localDateOf(new Date());
+    if (!date) return;
+    await journal.createWorkout(localDate(date));
     await reload();
   }
 
@@ -35,7 +39,7 @@ export function App({ journal }: { journal: Journal }) {
             type="date"
             required
             value={newDate}
-            onChange={(e) => setNewDate(e.target.value)}
+            onChange={(e) => setChosenDate(e.target.value)}
           />
         </label>
         <button className="button primary" type="submit" disabled={!newDate}>
