@@ -407,3 +407,112 @@ a.workout-date:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* Plan */
+
+.plan-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.plan-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.plan-text {
+  font: 16px/1.6 ui-monospace, "Cascadia Mono", Consolas, "Roboto Mono", monospace;
+  color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  width: 100%;
+  resize: vertical;
+}
+
+.plan-text:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.plan-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plan-line {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--ground);
+}
+
+.plan-line.bad {
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+}
+
+.plan-line-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.plan-line.bad .plan-line-name {
+  font: 14px/1.5 ui-monospace, "Cascadia Mono", Consolas, "Roboto Mono", monospace;
+}
+
+.plan-line-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.plan-chip {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--surface);
+}
+
+.plan-line-problem,
+.plan-left-out {
+  margin: 0;
+  font-size: 14px;
+  color: var(--danger);
+}
+
+.entry-plan {
+  margin: 0;
+  font: 15px/1.4 ui-monospace, "Cascadia Mono", Consolas, "Roboto Mono", monospace;
+  overflow-wrap: anywhere;
+}
+
+.entry-plan-label {
+  font: 12px/1 var(--font);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-right: 4px;
+}

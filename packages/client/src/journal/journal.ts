@@ -1,5 +1,5 @@
 import { Dexie, type EntityTable } from "dexie";
-import { checkRpe, checkSetValues, exerciseNameKey } from "@gymlog/shared";
+import { checkRpe, checkSetValues, exerciseNameKey, formatPlanLine, parsePlanLine, type PlanLine } from "@gymlog/shared";
 import type { EntryRecord, ExerciseRecord, LocalDate, SetRecord, SyncedRecord, WorkoutRecord } from "@gymlog/shared";
 import { newId } from "./ids.ts";
 
@@ -23,9 +23,17 @@ export interface PerformedSet {
   comment: string | null;
 }
 
+export interface PlannedSet {
+  id: string;
+  /** kg; null for a bodyweight Set. */
+  weight: number | null;
+  reps: number;
+}
+
 export interface Entry {
   id: string;
   exercise: Exercise;
+  plannedSets: PlannedSet[];
   performedSets: PerformedSet[];
 }
 
@@ -49,6 +57,13 @@ export interface Journal {
   setRpe(setId: string, rpe: number | null): Promise<void>;
   /** Sets the Comment; blank text clears it. */
   setComment(setId: string, text: string): Promise<void>;
+  /**
+   * Replaces the Workout's Plan with the understood lines of this Plan notation text,
+   * and reports how each non-empty line was understood.
+   */
+  setPlan(workoutId: string, text: string): Promise<PlanLine[]>;
+  /** The Workout's Plan in Plan notation, one line per planned Entry; empty when there is no Plan. */
+  getPlanText(workoutId: string): Promise<string>;
   close(): void;
 }
 
@@ -116,14 +131,15 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         .sort((a, b) => a.position - b.position);
       const exercises = await db.exercises.bulkGet(entries.map((e) => e.exerciseId));
       const sets = (await db.sets.where("entryId").anyOf(entries.map((e) => e.id)).toArray())
-        .filter((s) => !s.deleted && s.kind === "performed")
+        .filter((s) => !s.deleted)
         .sort((a, b) => a.position - b.position);
       return {
         ...toWorkout(workout),
         entries: entries.map((entry, i) => ({
           id: entry.id,
           exercise: toExercise(exercises[i]!),
-          performedSets: sets.filter((s) => s.entryId === entry.id).map(toPerformedSet),
+          plannedSets: sets.filter((s) => s.entryId === entry.id && s.kind === "planned").map(toPlannedSet),
+          performedSets: sets.filter((s) => s.entryId === entry.id && s.kind === "performed").map(toPerformedSet),
         })),
       };
     },
@@ -143,7 +159,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         const count = await db.entries.where("workoutId").equals(workoutId).count();
         const entry: EntryRecord = { ...newRecord(), workoutId, exerciseId: exercise.id, position: count };
         await db.entries.add(entry);
-        return { id: entry.id, exercise: toExercise(exercise), performedSets: [] };
+        return { id: entry.id, exercise: toExercise(exercise), plannedSets: [], performedSets: [] };
       });
     },
 
@@ -180,6 +196,69 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       await db.sets.update(setId, { comment: text.trim() || null, updatedAt: now() });
     },
 
+    async setPlan(workoutId, text) {
+      const lines = text
+        .split(/\r?\n/)
+        .filter((line) => line.trim() !== "")
+        .map(parsePlanLine);
+      await db.transaction("rw", [db.workouts, db.exercises, db.entries, db.sets], async () => {
+        const workout = await db.workouts.get(workoutId);
+        if (!workout || workout.deleted) throw new RangeError(`No Workout ${workoutId}`);
+        const entries = (await db.entries.where("workoutId").equals(workoutId).toArray())
+          .filter((e) => !e.deleted)
+          .sort((a, b) => a.position - b.position);
+        const sets = (await db.sets.where("entryId").anyOf(entries.map((e) => e.id)).toArray()).filter(
+          (s) => !s.deleted,
+        );
+        // Re-editing a Plan with recorded Sets needs reconciliation, which comes in a later ticket.
+        if (sets.some((s) => s.kind === "performed")) {
+          throw new RangeError("The Plan can't be changed once the Workout has Performed Sets");
+        }
+
+        // The old Plan goes; Entries added outside the Plan stay, after the new one.
+        const plannedEntryIds = new Set(sets.map((s) => s.entryId));
+        const time = now();
+        for (const set of sets) await db.sets.update(set.id, { deleted: true, updatedAt: time });
+        for (const entry of entries.filter((e) => plannedEntryIds.has(e.id))) {
+          await db.entries.update(entry.id, { deleted: true, updatedAt: time });
+        }
+        const keptEntries = entries.filter((e) => !plannedEntryIds.has(e.id));
+
+        let position = 0;
+        for (const line of lines) {
+          if (!line.ok) continue;
+          const exercise = await findOrCreateExercise(line.exerciseName);
+          const entry: EntryRecord = { ...newRecord(), workoutId, exerciseId: exercise.id, position: position++ };
+          await db.entries.add(entry);
+          const plannedSets = line.groups.flatMap((g) => Array.from({ length: g.sets }, () => g));
+          await db.sets.bulkAdd(
+            plannedSets.map((g, i): SetRecord => ({
+              ...newRecord(),
+              entryId: entry.id,
+              kind: "planned",
+              position: i,
+              weight: g.weight,
+              reps: g.reps,
+              rpe: null,
+              comment: null,
+            })),
+          );
+        }
+        for (const entry of keptEntries) {
+          await db.entries.update(entry.id, { position: position++, updatedAt: time });
+        }
+      });
+      return lines;
+    },
+
+    async getPlanText(workoutId) {
+      const workout = await this.getWorkout(workoutId);
+      return (workout?.entries ?? [])
+        .filter((entry) => entry.plannedSets.length > 0)
+        .map((entry) => formatPlanLine(entry.exercise.primaryName, entry.plannedSets))
+        .join("\n");
+    },
+
     close() {
       db.close();
     },
@@ -196,4 +275,8 @@ function toExercise(record: ExerciseRecord): Exercise {
 
 function toPerformedSet(record: SetRecord): PerformedSet {
   return { id: record.id, weight: record.weight, reps: record.reps, rpe: record.rpe, comment: record.comment };
+}
+
+function toPlannedSet(record: SetRecord): PlannedSet {
+  return { id: record.id, weight: record.weight, reps: record.reps };
 }

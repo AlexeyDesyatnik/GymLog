@@ -3,7 +3,24 @@ import type { LocalDate } from "@gymlog/shared";
 import type { Journal, WorkoutWithEntries } from "../journal/journal.ts";
 import { EntryCard } from "./EntryCard.tsx";
 import { formatWorkoutDate } from "./format.ts";
+import { PlanEditor } from "./PlanEditor.tsx";
+import { loadPlanDraft } from "./planDraft.ts";
 import { workoutsHref } from "./useRoute.ts";
+
+function PlanButton({ workout, onOpen }: { workout: WorkoutWithEntries; onOpen: () => void }) {
+  const hasPlan = workout.entries.some((e) => e.plannedSets.length > 0);
+  // Until re-editing with recorded Sets is built, the Plan is fixed once a Set is recorded.
+  const locked = workout.entries.some((e) => e.performedSets.length > 0);
+  if (locked && !hasPlan) return null;
+  return (
+    <div className="plan-button">
+      <button className="button" type="button" onClick={onOpen} disabled={locked}>
+        {hasPlan ? "Изменить план" : "Написать план"}
+      </button>
+      {locked ? <p className="hint">План нельзя менять, когда уже записаны подходы.</p> : null}
+    </div>
+  );
+}
 
 interface WorkoutScreenProps {
   journal: Journal;
@@ -15,6 +32,8 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
   /** undefined while loading, null when there is no such Workout. */
   const [workout, setWorkout] = useState<WorkoutWithEntries | null | undefined>(undefined);
   const [exerciseName, setExerciseName] = useState("");
+  /** The Plan editor's starting text while it is open; an unfinished draft reopens it. */
+  const [planText, setPlanText] = useState<string | null>(() => loadPlanDraft(workoutId));
 
   const reload = useCallback(async () => {
     setWorkout((await journal.getWorkout(workoutId)) ?? null);
@@ -23,6 +42,10 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  async function openPlanEditor() {
+    setPlanText(loadPlanDraft(workoutId) ?? (await journal.getPlanText(workoutId)));
+  }
 
   async function addEntry(event: FormEvent) {
     event.preventDefault();
@@ -51,8 +74,20 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
         {workout.date === today ? <span className="today">сегодня</span> : null}
       </h1>
 
+      {planText !== null ? (
+        <PlanEditor
+          journal={journal}
+          workoutId={workoutId}
+          initialText={planText}
+          onClose={() => setPlanText(null)}
+          onApplied={reload}
+        />
+      ) : (
+        <PlanButton workout={workout} onOpen={() => void openPlanEditor()} />
+      )}
+
       {workout.entries.length === 0 ? (
-        <p className="empty">Добавьте первое упражнение.</p>
+        <p className="empty">Напишите план или добавьте первое упражнение.</p>
       ) : (
         <ol className="entries">
           {workout.entries.map((entry) => (

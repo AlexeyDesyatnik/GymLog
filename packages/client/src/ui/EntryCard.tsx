@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { formatPlanSets } from "@gymlog/shared";
 import type { Entry, Journal } from "../journal/journal.ts";
 import { parseReps, parseWeight, showNumber } from "./numbers.ts";
 import { SetRow } from "./SetRow.tsx";
@@ -27,6 +28,11 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
   return (
     <li className="entry">
       <h2 className="entry-name">{entry.exercise.primaryName}</h2>
+      {entry.plannedSets.length > 0 ? (
+        <p className="entry-plan">
+          <span className="entry-plan-label">План</span> {formatPlanSets(entry.plannedSets)}
+        </p>
+      ) : null}
 
       {entry.performedSets.length > 0 ? (
         <ol className="sets">
