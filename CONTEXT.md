@@ -19,7 +19,7 @@ The planned Sets of one Workout. Only the user edits it; what is actually perfor
 _Avoid_: Program, training plan
 
 **Plan notation** (нотация плана):
-The text form of a Plan: one line per Entry, the Exercise name followed by groups of weight/reps/sets, e.g. `bench press 80/5/3 70/8`. Plans are typed and edited in it.
+The text form of a Plan: one line per Entry, the Exercise name followed by groups of weight x reps x sets, e.g. `bench press 80x5x3 70x8`. Plans are typed and edited in it.
 _Avoid_: Plan text, syntax
 
 **Template** (шаблон):
