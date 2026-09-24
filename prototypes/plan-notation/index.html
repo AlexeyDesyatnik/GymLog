@@ -1,0 +1,511 @@
+<title>Нотация плана</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #f3f4f1;
+    --surface: #ffffff;
+    --ink: #1b1f1c;
+    --muted: #5d6560;
+    --line: #d9ddd8;
+    --accent: #1f5fbf;
+    --accent-ink: #ffffff;
+    --accent-soft: #e3ecf9;
+    --ok: #2e7d4f;
+    --bad: #b3261e;
+    --bad-soft: #fbe9e7;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #141715;
+      --surface: #1d211e;
+      --ink: #e8ece9;
+      --muted: #9aa39d;
+      --line: #313732;
+      --accent: #6ea2f0;
+      --accent-ink: #0d1a2e;
+      --accent-soft: #1c2a40;
+      --ok: #6cc592;
+      --bad: #f08a80;
+      --bad-soft: #3a1f1c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #141715;
+    --surface: #1d211e;
+    --ink: #e8ece9;
+    --muted: #9aa39d;
+    --line: #313732;
+    --accent: #6ea2f0;
+    --accent-ink: #0d1a2e;
+    --accent-soft: #1c2a40;
+    --ok: #6cc592;
+    --bad: #f08a80;
+    --bad-soft: #3a1f1c;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font: 15px/1.5 var(--sans);
+  }
+  .page {
+    max-width: 640px;
+    margin: 0 auto;
+    padding-inline: 16px;
+    padding-block: 20px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  h1 { font-size: 22px; line-height: 1.25; font-weight: 600; margin: 0; text-wrap: balance; }
+  h2 { font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0; }
+  p { margin: 0; }
+  .lede { color: var(--muted); max-width: 60ch; }
+  section { display: flex; flex-direction: column; gap: 10px; }
+
+  .controls { display: flex; flex-direction: column; gap: 12px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .row-label { font-size: 13px; color: var(--muted); min-width: 92px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 3px; gap: 3px; }
+  .seg button {
+    font: 500 15px/1 var(--sans);
+    color: var(--ink);
+    background: transparent;
+    border: 0;
+    border-radius: 7px;
+    padding: 9px 14px;
+    cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  .seg button.mono { font-family: var(--mono); }
+  button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .reference {
+    background: var(--accent-soft);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .reference ol { margin: 0; padding-left: 22px; font: 14px/1.6 var(--mono); }
+  .reference .hint { font-size: 13px; color: var(--muted); }
+
+  textarea {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 168px;
+    resize: vertical;
+    font: 16px/1.6 var(--mono);
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .timer { font: 500 15px/1 var(--mono); font-variant-numeric: tabular-nums; margin-right: auto; }
+  .timer small { font: 13px var(--sans); color: var(--muted); }
+  .btn {
+    font: 500 15px/1 var(--sans);
+    border-radius: 10px;
+    padding: 11px 16px;
+    cursor: pointer;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .btn:disabled { opacity: .45; cursor: default; }
+
+  .summary { font-size: 14px; color: var(--muted); }
+  .lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .line {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .line.bad { background: var(--bad-soft); border-color: var(--bad); }
+  .line .name { font-weight: 600; overflow-wrap: anywhere; }
+  .line .name .status { color: var(--ok); margin-right: 6px; }
+  .line.bad .name .status { color: var(--bad); }
+  .groups { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    font: 13px/1 var(--sans);
+    font-variant-numeric: tabular-nums;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 10px;
+    background: var(--ground);
+  }
+  .rendered { font: 13px/1.5 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+  .error { font-size: 14px; color: var(--bad); }
+  .source { font: 13px/1.5 var(--mono); overflow-wrap: anywhere; }
+  .empty { color: var(--muted); font-size: 14px; }
+
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  td.mono { font-family: var(--mono); }
+
+  .steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<main class="page">
+  <header>
+    <h1>Нотация плана: что удобнее набирать</h1>
+  </header>
+  <p class="lede">Прототип для выбора нотации (ADR 0003). Наберите одни и те же строки плана в каждом варианте и сравните, сколько раз пришлось переключать клавиатуру. Страница ничего не сохраняет и никуда не отправляет.</p>
+
+  <section aria-labelledby="how">
+    <h2 id="how">Как проверять</h2>
+    <ol class="steps">
+      <li>Выберите вариант, клавиатуру и режим ряда цифр.</li>
+      <li>Нажмите «Очистить» и наберите строки из образца. Время идёт от первого символа.</li>
+      <li>Нажмите «Записать результат» и повторите для других сочетаний.</li>
+    </ol>
+  </section>
+
+  <section class="controls" aria-labelledby="setup">
+    <h2 id="setup">Что сравниваем</h2>
+    <div class="row">
+      <span class="row-label">Вариант</span>
+      <div class="seg" role="group" aria-label="Вариант нотации" id="variant-seg"></div>
+    </div>
+    <div class="row">
+      <span class="row-label">Клавиатура</span>
+      <div class="seg" role="group" aria-label="Клавиатура" id="keyboard-seg"></div>
+    </div>
+    <div class="row">
+      <span class="row-label">Ряд цифр</span>
+      <div class="seg" role="group" aria-label="Ряд цифр над буквами" id="numrow-seg"></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="sample">
+    <h2 id="sample">Образец</h2>
+    <div class="reference">
+      <ol id="reference"></ol>
+      <p class="hint" id="hint"></p>
+    </div>
+  </section>
+
+  <section aria-labelledby="input-label">
+    <h2 id="input-label"><label for="plan">План</label></h2>
+    <textarea id="plan" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" rows="6"></textarea>
+    <div class="toolbar">
+      <span class="timer" id="timer" aria-live="polite">— <small>время набора</small></span>
+      <button class="btn" id="clear" type="button">Очистить</button>
+      <button class="btn primary" id="save" type="button" disabled>Записать результат</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="parsed">
+    <h2 id="parsed">Как понято</h2>
+    <p class="summary" id="summary"></p>
+    <ul class="lines" id="lines"></ul>
+  </section>
+
+  <section aria-labelledby="results">
+    <h2 id="results">Результаты</h2>
+    <p class="empty" id="results-empty">Пока пусто. Результаты хранятся, только пока страница открыта.</p>
+    <div class="table-wrap" id="results-wrap" hidden>
+      <table>
+        <thead><tr><th>Вариант</th><th>Клавиатура</th><th>Ряд цифр</th><th>Время</th><th>Понято</th></tr></thead>
+        <tbody id="results-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  var VARIANTS = {
+    slash: {
+      label: "/",
+      mono: true,
+      example: [
+        "bench press 80/5/3 70/8",
+        "pull-up /8/3",
+        "dumbbell press 22,5/10/3",
+        "deadlift 180/1",
+        "жим с паузой 3 сек 75/4/3"
+      ],
+      hint: "вес/повторы/подходы, группы через пробел. Без веса: /8/3. Один подход: 180/1. Принимаются и x, х, ×, *."
+    },
+    x: {
+      label: "x",
+      mono: true,
+      example: [
+        "bench press 80x5x3 70x8",
+        "pull-up x8x3",
+        "dumbbell press 22,5x10x3",
+        "deadlift 180x1",
+        "жим с паузой 3 сек 75х4х3"
+      ],
+      hint: "вес x повторы x подходы, группы через пробел. Подходит и кириллическая х. Без веса: x8x3. Принимаются и /, ×, *."
+    },
+    space: {
+      label: "пробелы",
+      mono: false,
+      example: [
+        "bench press 80 5 3, 70 8",
+        "pull-up - 8 3",
+        "dumbbell press 22,5 10 3",
+        "deadlift 180 1",
+        "жим с паузой 3 сек 75 4 3"
+      ],
+      hint: "вес повторы подходы через пробел, группы через запятую с пробелом. Без веса: - 8 3. Дробь: 22,5 без пробела после запятой."
+    }
+  };
+  var KEYBOARDS = ["Gboard", "Яндекс", "Другая"];
+  var NUMROW = ["выкл", "вкл"];
+
+  var state = { variant: "slash", keyboard: "Gboard", numrow: "выкл", isExample: true, armed: false, t0: null, tLast: null };
+  var results = [];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var plan = $("plan");
+
+  // ---- parsing ----
+  function num(s) { return parseFloat(s.replace(",", ".")); }
+  function fmtNum(n) { return String(n).replace(".", ","); }
+
+  var SEP = "[\\/xXхХ×*]";
+  var GROUP_RE = new RegExp("^(\\d+(?:[.,]\\d+)?)?" + SEP + "(\\d+)(?:" + SEP + "(\\d+))?$");
+
+  function parseSeparated(line) {
+    var tokens = line.trim().split(/\s+/);
+    var groups = [];
+    while (tokens.length && GROUP_RE.test(tokens[tokens.length - 1])) {
+      var m = tokens.pop().match(GROUP_RE);
+      groups.unshift({
+        weight: m[1] !== undefined ? num(m[1]) : null,
+        reps: parseInt(m[2], 10),
+        sets: m[3] !== undefined ? parseInt(m[3], 10) : 1
+      });
+    }
+    return finish(tokens.join(" "), groups);
+  }
+
+  var SPACE_TOKEN = /^(-|\d+(?:[.,]\d+)?)(,?)$/;
+
+  function parseSpaced(line) {
+    var tokens = line.trim().split(/\s+/);
+    var tail = [];
+    while (tokens.length && SPACE_TOKEN.test(tokens[tokens.length - 1])) tail.unshift(tokens.pop());
+    var raw = [], cur = [];
+    tail.forEach(function (t, i) {
+      var m = t.match(SPACE_TOKEN);
+      cur.push(m[1]);
+      if (m[2] || i === tail.length - 1) { raw.push(cur); cur = []; }
+    });
+    // numbers at the end of the name are handed back to it
+    if (raw.length && raw[0].length > 3) {
+      var extra = raw[0].splice(0, raw[0].length - 3);
+      tokens = tokens.concat(extra);
+    }
+    var groups = raw.map(function (g) {
+      if (g.length < 2) return { error: "В группе «" + g.join(" ") + "» нужно хотя бы вес и повторы." };
+      if (g.length > 3) return { error: "В группе «" + g.join(" ") + "» больше трёх чисел." };
+      var r = g[1], s = g[2];
+      if (!/^\d+$/.test(r) || (s !== undefined && !/^\d+$/.test(s))) {
+        return { error: "Повторы и подходы в группе «" + g.join(" ") + "» должны быть целыми числами." };
+      }
+      return { weight: g[0] === "-" ? null : num(g[0]), reps: parseInt(r, 10), sets: s !== undefined ? parseInt(s, 10) : 1 };
+    });
+    return finish(tokens.join(" "), groups);
+  }
+
+  function finish(name, groups) {
+    if (!groups.length) return { ok: false, msg: "Не нашлось ни одной группы подходов после названия." };
+    for (var i = 0; i < groups.length; i++) if (groups[i].error) return { ok: false, msg: groups[i].error };
+    if (!name) return { ok: false, msg: "Нет названия упражнения." };
+    for (var j = 0; j < groups.length; j++) {
+      if (groups[j].reps < 1 || groups[j].sets < 1) return { ok: false, msg: "Повторов и подходов должно быть не меньше одного." };
+    }
+    return { ok: true, name: name, groups: groups };
+  }
+
+  function parse(line) { return state.variant === "space" ? parseSpaced(line) : parseSeparated(line); }
+
+  function render(parsed) {
+    if (state.variant === "space") {
+      return parsed.name + " " + parsed.groups.map(function (g) {
+        return (g.weight === null ? "-" : fmtNum(g.weight)) + " " + g.reps + (g.sets > 1 ? " " + g.sets : "");
+      }).join(", ");
+    }
+    var sep = VARIANTS[state.variant].label;
+    return parsed.name + " " + parsed.groups.map(function (g) {
+      return (g.weight === null ? "" : fmtNum(g.weight)) + sep + g.reps + (g.sets > 1 ? sep + g.sets : "");
+    }).join(" ");
+  }
+
+  function sets(n) {
+    var m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return n + " подход";
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + " подхода";
+    return n + " подходов";
+  }
+  function reps(n) {
+    var m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return n + " повтор";
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + " повтора";
+    return n + " повторов";
+  }
+
+  // ---- UI ----
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  function buildSeg(id, options, key, labelOf, monoOf) {
+    var seg = $(id);
+    seg.textContent = "";
+    options.forEach(function (opt) {
+      var b = el("button", monoOf && monoOf(opt) ? "mono" : "", labelOf ? labelOf(opt) : opt);
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(state[key] === opt));
+      b.addEventListener("click", function () {
+        state[key] = opt;
+        if (key === "variant" && state.isExample) plan.value = VARIANTS[opt].example.join("\n");
+        buildSeg(id, options, key, labelOf, monoOf);
+        refresh();
+      });
+      seg.appendChild(b);
+    });
+  }
+
+  function refresh() {
+    var v = VARIANTS[state.variant];
+    var ref = $("reference");
+    ref.textContent = "";
+    v.example.forEach(function (l) { ref.appendChild(el("li", "", l)); });
+    $("hint").textContent = v.hint;
+    plan.placeholder = v.example[0];
+
+    var lines = plan.value.split("\n").filter(function (l) { return l.trim() !== ""; });
+    var list = $("lines");
+    list.textContent = "";
+    var understood = 0;
+    lines.forEach(function (line) {
+      var p = parse(line);
+      var li = el("li", "line" + (p.ok ? "" : " bad"));
+      if (p.ok) {
+        understood++;
+        var name = el("div", "name");
+        name.appendChild(el("span", "status", "✓"));
+        name.appendChild(document.createTextNode(p.name));
+        li.appendChild(name);
+        var groups = el("div", "groups");
+        p.groups.forEach(function (g) {
+          var w = g.weight === null ? "без веса" : fmtNum(g.weight) + " кг";
+          groups.appendChild(el("span", "chip", w + " · " + reps(g.reps) + " · " + sets(g.sets)));
+        });
+        li.appendChild(groups);
+        li.appendChild(el("div", "rendered", "Приложение покажет: " + render(p)));
+      } else {
+        var bad = el("div", "name");
+        bad.appendChild(el("span", "status", "✕"));
+        bad.appendChild(document.createTextNode("Строка не понята"));
+        li.appendChild(bad);
+        li.appendChild(el("div", "source", line));
+        li.appendChild(el("div", "error", p.msg));
+      }
+      list.appendChild(li);
+    });
+    $("summary").textContent = lines.length
+      ? "Понято строк: " + understood + " из " + lines.length + (state.isExample ? " (это образец, нажмите «Очистить», чтобы набрать самому)" : "")
+      : "Наберите план в поле выше.";
+    state.understood = understood;
+    state.total = lines.length;
+    updateTimer();
+  }
+
+  function elapsed() { return state.t0 === null ? null : (state.tLast - state.t0) / 1000; }
+
+  function updateTimer() {
+    var t = elapsed();
+    var timer = $("timer");
+    timer.textContent = "";
+    timer.appendChild(document.createTextNode(t === null ? "— " : t.toFixed(1).replace(".", ",") + " с "));
+    timer.appendChild(el("small", "", "время набора"));
+    $("save").disabled = t === null;
+  }
+
+  function clearInput() {
+    plan.value = "";
+    state.isExample = false;
+    state.armed = true;
+    state.t0 = null;
+    state.tLast = null;
+    refresh();
+    plan.focus();
+  }
+
+  plan.addEventListener("input", function () {
+    state.isExample = false;
+    var now = performance.now();
+    if (plan.value === "") {
+      state.armed = true;
+      state.t0 = null;
+    } else if (state.armed && state.t0 === null) {
+      state.t0 = now;
+    }
+    if (state.t0 !== null) state.tLast = now;
+    refresh();
+  });
+
+  $("clear").addEventListener("click", clearInput);
+
+  $("save").addEventListener("click", function () {
+    var t = elapsed();
+    if (t === null) return;
+    results.push({
+      variant: VARIANTS[state.variant].label,
+      keyboard: state.keyboard,
+      numrow: state.numrow,
+      time: t.toFixed(1).replace(".", ",") + " с",
+      understood: state.understood + " из " + state.total
+    });
+    var body = $("results-body");
+    body.textContent = "";
+    results.forEach(function (r) {
+      var tr = el("tr");
+      tr.appendChild(el("td", "mono", r.variant));
+      tr.appendChild(el("td", "", r.keyboard));
+      tr.appendChild(el("td", "", r.numrow));
+      tr.appendChild(el("td", "mono", r.time));
+      tr.appendChild(el("td", "", r.understood));
+      body.appendChild(tr);
+    });
+    $("results-empty").hidden = true;
+    $("results-wrap").hidden = false;
+    clearInput();
+  });
+
+  buildSeg("variant-seg", Object.keys(VARIANTS), "variant", function (k) { return VARIANTS[k].label; }, function (k) { return VARIANTS[k].mono; });
+  buildSeg("keyboard-seg", KEYBOARDS, "keyboard");
+  buildSeg("numrow-seg", NUMROW, "numrow");
+  plan.value = VARIANTS[state.variant].example.join("\n");
+  refresh();
+})();
+</script>
