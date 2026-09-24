@@ -1,4 +1,5 @@
 import { Dexie, type EntityTable } from "dexie";
+import { checkRpe, checkSetValues, exerciseNameKey } from "@gymlog/shared";
 import type { EntryRecord, ExerciseRecord, LocalDate, SetRecord, SyncedRecord, WorkoutRecord } from "@gymlog/shared";
 import { newId } from "./ids.ts";
 
@@ -86,11 +87,11 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
   }
 
   async function findOrCreateExercise(name: string): Promise<ExerciseRecord> {
-    const key = nameKey(name);
+    const key = exerciseNameKey(name);
     if (!key) throw new RangeError("An Exercise needs a name");
     const existing = await db.exercises.where("nameKeys").equals(key).filter((e) => !e.deleted).first();
     if (existing) return existing;
-    const created: ExerciseRecord = { ...newRecord(), primaryName: name.trim(), nameKeys: [key] };
+    const created: ExerciseRecord = { ...newRecord(), primaryName: name.trim(), alternativeNames: [], nameKeys: [key] };
     await db.exercises.add(created);
     return created;
   }
@@ -115,7 +116,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         .sort((a, b) => a.position - b.position);
       const exercises = await db.exercises.bulkGet(entries.map((e) => e.exerciseId));
       const sets = (await db.sets.where("entryId").anyOf(entries.map((e) => e.id)).toArray())
-        .filter((s) => !s.deleted)
+        .filter((s) => !s.deleted && s.kind === "performed")
         .sort((a, b) => a.position - b.position);
       return {
         ...toWorkout(workout),
@@ -150,7 +151,16 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       checkSetValues({ weight, reps });
       return db.transaction("rw", db.sets, async () => {
         const count = await db.sets.where("entryId").equals(entryId).count();
-        const set: SetRecord = { ...newRecord(), entryId, position: count, weight, reps, rpe: null, comment: null };
+        const set: SetRecord = {
+          ...newRecord(),
+          entryId,
+          kind: "performed",
+          position: count,
+          weight,
+          reps,
+          rpe: null,
+          comment: null,
+        };
         await db.sets.add(set);
         return toPerformedSet(set);
       });
@@ -162,9 +172,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     },
 
     async setRpe(setId, rpe) {
-      if (rpe !== null && !(Number.isInteger(rpe * 2) && rpe >= 1 && rpe <= 10)) {
-        throw new RangeError(`RPE must be 1 to 10 in steps of 0.5, not ${rpe}`);
-      }
+      checkRpe(rpe);
       await db.sets.update(setId, { rpe, updatedAt: now() });
     },
 
@@ -176,21 +184,6 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       db.close();
     },
   };
-}
-
-/** Weight is optional and never negative; reps are completed repetitions, a whole number from 0. */
-function checkSetValues({ weight, reps }: SetValues): void {
-  if (weight !== null && !(Number.isFinite(weight) && weight >= 0)) {
-    throw new RangeError(`Weight must be a number of kg from 0, not ${weight}`);
-  }
-  if (!(Number.isInteger(reps) && reps >= 0)) {
-    throw new RangeError(`Reps must be a whole number from 0, not ${reps}`);
-  }
-}
-
-/** Exercise names match ignoring case and extra spaces. */
-function nameKey(name: string): string {
-  return name.trim().replace(/\s+/g, " ").toLocaleLowerCase("ru");
 }
 
 function toWorkout(record: WorkoutRecord): Workout {

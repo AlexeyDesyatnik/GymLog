@@ -20,7 +20,8 @@ export interface WorkoutRecord extends SyncedRecord {
 
 export interface ExerciseRecord extends SyncedRecord {
   primaryName: string;
-  /** Every name of the Exercise, normalised for lookup (see nameKey). */
+  alternativeNames: string[];
+  /** The Primary and Alternative names, normalised for lookup (see exerciseNameKey). */
   nameKeys: string[];
 }
 
@@ -33,6 +34,7 @@ export interface EntryRecord extends SyncedRecord {
 
 export interface SetRecord extends SyncedRecord {
   entryId: string;
+  kind: "planned" | "performed";
   /** Order within the Entry. */
   position: number;
   /** kg; null for a bodyweight Set. */

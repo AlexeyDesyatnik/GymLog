@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Journal, PerformedSet } from "../journal/journal.ts";
 import { parseReps, parseWeight, showNumber } from "./numbers.ts";
+import { useAutosave } from "./useAutosave.ts";
 
 interface SetRowProps {
   journal: Journal;
@@ -19,9 +20,9 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
   const [comment, setComment] = useState(set.comment ?? "");
   const parsedWeight = parseWeight(weight);
   const parsedReps = parseReps(reps);
+  const valuesAutosave = useAutosave();
+  const commentAutosave = useAutosave();
 
-  // Every valid change is saved at once: a field that never loses focus (the phone is
-  // locked, the app is switched) must not lose what was typed.
   async function saveValues(weightText: string, repsText: string) {
     const newWeight = parseWeight(weightText);
     const newReps = parseReps(repsText);
@@ -36,10 +37,12 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
     await onChange();
   }
 
-  async function changeComment(text: string) {
+  function changeComment(text: string) {
     setComment(text);
-    await journal.setComment(set.id, text);
-    await onChange();
+    commentAutosave.schedule(async () => {
+      await journal.setComment(set.id, text);
+      await onChange();
+    });
   }
 
   const showComment = commenting || comment.trim() !== "";
@@ -55,9 +58,11 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
           inputMode="decimal"
           value={weight}
           onChange={(e) => {
-            setWeight(e.target.value);
-            void saveValues(e.target.value, reps);
+            const text = e.target.value;
+            setWeight(text);
+            valuesAutosave.schedule(() => saveValues(text, reps));
           }}
+          onBlur={valuesAutosave.flush}
           placeholder="—"
           aria-label={`Вес подхода ${number}, кг`}
           aria-invalid={!parsedWeight.ok}
@@ -71,9 +76,11 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
           pattern="[0-9]*"
           value={reps}
           onChange={(e) => {
-            setReps(e.target.value);
-            void saveValues(weight, e.target.value);
+            const text = e.target.value;
+            setReps(text);
+            valuesAutosave.schedule(() => saveValues(weight, text));
           }}
+          onBlur={valuesAutosave.flush}
           aria-label={`Повторы подхода ${number}`}
           aria-invalid={!parsedReps.ok}
         />
@@ -113,8 +120,11 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
           className="comment-input"
           type="text"
           value={comment}
-          onChange={(e) => void changeComment(e.target.value)}
-          onBlur={() => setCommenting(false)}
+          onChange={(e) => changeComment(e.target.value)}
+          onBlur={() => {
+            commentAutosave.flush();
+            setCommenting(false);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter") e.currentTarget.blur();
           }}

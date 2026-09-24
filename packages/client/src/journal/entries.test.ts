@@ -17,7 +17,7 @@ test("adding an Entry with an unknown name creates the Exercise", async () => {
   expect(detail?.entries.map((e) => e.exercise.primaryName)).toEqual(["Bench Press"]);
 });
 
-test("a name matching an existing Exercise, ignoring case and spaces, reuses it in a new Entry", async () => {
+test("Exercise names are unique ignoring case and spaces: a matching name reuses the Exercise in a new Entry", async () => {
   const { journal, workout } = await journalWithWorkout();
 
   const first = await journal.addEntry(workout.id, "bench press");
