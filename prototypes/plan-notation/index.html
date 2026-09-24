@@ -15,6 +15,8 @@
     --ok: #2e7d4f;
     --bad: #b3261e;
     --bad-soft: #fbe9e7;
+    --warn: #8a5a00;
+    --warn-soft: #fdf1d8;
     --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
   }
@@ -32,6 +34,8 @@
       --ok: #6cc592;
       --bad: #f08a80;
       --bad-soft: #3a1f1c;
+      --warn: #e8b454;
+      --warn-soft: #33290f;
     }
   }
   :root[data-theme="dark"] {
@@ -47,6 +51,8 @@
     --ok: #6cc592;
     --bad: #f08a80;
     --bad-soft: #3a1f1c;
+    --warn: #e8b454;
+    --warn-soft: #33290f;
   }
 
   body {
@@ -139,6 +145,9 @@
   .line .name { font-weight: 600; overflow-wrap: anywhere; }
   .line .name .status { color: var(--ok); margin-right: 6px; }
   .line.bad .name .status { color: var(--bad); }
+  .line.warn { background: var(--warn-soft); border-color: var(--warn); }
+  .line.warn .name .status { color: var(--warn); }
+  .warning { font-size: 14px; color: var(--warn); }
   .groups { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip {
     font: 13px/1 var(--sans);
@@ -160,8 +169,6 @@
   td.mono { font-family: var(--mono); }
 
   .steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
-
-  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
 <main class="page">
@@ -288,9 +295,16 @@
 
   var SEP = "[\\/xXхХ×*]";
   var GROUP_RE = new RegExp("^(\\d+(?:[.,]\\d+)?)?" + SEP + "(\\d+)(?:" + SEP + "(\\d+))?$");
+  var LONE_SEP_BEFORE_DIGIT = new RegExp("(^|\\s)(" + SEP + ")\\s+(?=\\d)", "g");
+  var SPACED_SEP_BETWEEN_DIGITS = new RegExp("(\\d)\\s*(" + SEP + ")\\s*(?=\\d)", "g");
+
+  // Paper habit: "80 x 5 x 3" and "x 8 x 3" become "80x5x3" and "x8x3".
+  function joinSpacedSeparators(line) {
+    return line.replace(LONE_SEP_BEFORE_DIGIT, "$1$2").replace(SPACED_SEP_BETWEEN_DIGITS, "$1$2");
+  }
 
   function parseSeparated(line) {
-    var tokens = line.trim().split(/\s+/);
+    var tokens = joinSpacedSeparators(line).trim().split(/\s+/);
     var groups = [];
     while (tokens.length && GROUP_RE.test(tokens[tokens.length - 1])) {
       var m = tokens.pop().match(GROUP_RE);
@@ -300,25 +314,34 @@
         sets: m[3] !== undefined ? parseInt(m[3], 10) : 1
       });
     }
-    return finish(tokens.join(" "), groups);
+    return validateLine(tokens.join(" "), groups);
   }
 
   var SPACE_TOKEN = /^(-|\d+(?:[.,]\d+)?)(,?)$/;
 
+  function isSpaceTail(t) { return t === "," || SPACE_TOKEN.test(t); }
+
   function parseSpaced(line) {
     var tokens = line.trim().split(/\s+/);
     var tail = [];
-    while (tokens.length && SPACE_TOKEN.test(tokens[tokens.length - 1])) tail.unshift(tokens.pop());
+    while (tokens.length && isSpaceTail(tokens[tokens.length - 1])) tail.unshift(tokens.pop());
     var raw = [], cur = [];
-    tail.forEach(function (t, i) {
+    tail.forEach(function (t) {
+      if (t === ",") {
+        if (cur.length) { raw.push(cur); cur = []; }
+        return;
+      }
       var m = t.match(SPACE_TOKEN);
       cur.push(m[1]);
-      if (m[2] || i === tail.length - 1) { raw.push(cur); cur = []; }
+      if (m[2]) { raw.push(cur); cur = []; }
     });
-    // numbers at the end of the name are handed back to it
+    if (cur.length) raw.push(cur);
+    // Numbers at the end of the name are handed back to it, which can also hide a forgotten comma.
+    var warning = null;
     if (raw.length && raw[0].length > 3) {
       var extra = raw[0].splice(0, raw[0].length - 3);
       tokens = tokens.concat(extra);
+      warning = "Число «" + extra.join(" ") + "» отнесено к названию. Если это не часть названия, между группами пропущена запятая.";
     }
     var groups = raw.map(function (g) {
       if (g.length < 2) return { error: "В группе «" + g.join(" ") + "» нужно хотя бы вес и повторы." };
@@ -329,17 +352,17 @@
       }
       return { weight: g[0] === "-" ? null : num(g[0]), reps: parseInt(r, 10), sets: s !== undefined ? parseInt(s, 10) : 1 };
     });
-    return finish(tokens.join(" "), groups);
+    return validateLine(tokens.join(" "), groups, warning);
   }
 
-  function finish(name, groups) {
+  function validateLine(name, groups, warning) {
     if (!groups.length) return { ok: false, msg: "Не нашлось ни одной группы подходов после названия." };
     for (var i = 0; i < groups.length; i++) if (groups[i].error) return { ok: false, msg: groups[i].error };
     if (!name) return { ok: false, msg: "Нет названия упражнения." };
     for (var j = 0; j < groups.length; j++) {
       if (groups[j].reps < 1 || groups[j].sets < 1) return { ok: false, msg: "Повторов и подходов должно быть не меньше одного." };
     }
-    return { ok: true, name: name, groups: groups };
+    return { ok: true, name: name, groups: groups, warning: warning || null };
   }
 
   function parse(line) { return state.variant === "space" ? parseSpaced(line) : parseSeparated(line); }
@@ -356,17 +379,12 @@
     }).join(" ");
   }
 
-  function sets(n) {
+  // Russian plural: 1 подход, 2 подхода, 5 подходов.
+  function withPlural(n, one, few, many) {
     var m10 = n % 10, m100 = n % 100;
-    if (m10 === 1 && m100 !== 11) return n + " подход";
-    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + " подхода";
-    return n + " подходов";
-  }
-  function reps(n) {
-    var m10 = n % 10, m100 = n % 100;
-    if (m10 === 1 && m100 !== 11) return n + " повтор";
-    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + " повтора";
-    return n + " повторов";
+    if (m10 === 1 && m100 !== 11) return n + " " + one;
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + " " + few;
+    return n + " " + many;
   }
 
   // ---- UI ----
@@ -408,19 +426,21 @@
     var understood = 0;
     lines.forEach(function (line) {
       var p = parse(line);
-      var li = el("li", "line" + (p.ok ? "" : " bad"));
+      var li = el("li", "line" + (!p.ok ? " bad" : p.warning ? " warn" : ""));
       if (p.ok) {
         understood++;
         var name = el("div", "name");
-        name.appendChild(el("span", "status", "✓"));
+        name.appendChild(el("span", "status", p.warning ? "!" : "✓"));
         name.appendChild(document.createTextNode(p.name));
         li.appendChild(name);
         var groups = el("div", "groups");
         p.groups.forEach(function (g) {
           var w = g.weight === null ? "без веса" : fmtNum(g.weight) + " кг";
-          groups.appendChild(el("span", "chip", w + " · " + reps(g.reps) + " · " + sets(g.sets)));
+          groups.appendChild(el("span", "chip",
+            w + " · " + withPlural(g.reps, "повтор", "повтора", "повторов") + " · " + withPlural(g.sets, "подход", "подхода", "подходов")));
         });
         li.appendChild(groups);
+        if (p.warning) li.appendChild(el("div", "warning", p.warning));
         li.appendChild(el("div", "rendered", "Приложение покажет: " + render(p)));
       } else {
         var bad = el("div", "name");
@@ -446,7 +466,7 @@
     var t = elapsed();
     var timer = $("timer");
     timer.textContent = "";
-    timer.appendChild(document.createTextNode(t === null ? "— " : t.toFixed(1).replace(".", ",") + " с "));
+    timer.appendChild(document.createTextNode(t === null ? "— " : fmtNum(t.toFixed(1)) + " с "));
     timer.appendChild(el("small", "", "время набора"));
     $("save").disabled = t === null;
   }
@@ -483,7 +503,7 @@
       variant: VARIANTS[state.variant].label,
       keyboard: state.keyboard,
       numrow: state.numrow,
-      time: t.toFixed(1).replace(".", ",") + " с",
+      time: fmtNum(t.toFixed(1)) + " с",
       understood: state.understood + " из " + state.total
     });
     var body = $("results-body");
