@@ -1,13 +1,14 @@
 import { useState } from "react";
-import { parsePlanLine, type PlanLineProblem } from "@gymlog/shared";
+import { parsePlan, type PlanLineProblem } from "@gymlog/shared";
 import type { Journal } from "../journal/journal.ts";
 import { showNumber } from "./numbers.ts";
-import { clearPlanDraft, savePlanDraft } from "./planDraft.ts";
+import { clearPlanDraft, savePlanDraft, type PlanDraft } from "./planDraft.ts";
 
 interface PlanEditorProps {
   journal: Journal;
   workoutId: string;
-  initialText: string;
+  /** What the editor opens with: the stored Plan, or an unfinished draft of it. */
+  draft: PlanDraft;
   onClose: () => void;
   onApplied: () => Promise<void>;
 }
@@ -15,29 +16,36 @@ interface PlanEditorProps {
 const PROBLEMS: Record<PlanLineProblem, string> = {
   "no-groups": "После названия нужны подходы, например 80x5x3.",
   "no-name": "Нет названия упражнения.",
+  "broken-group": "Похоже на недописанный подход, например «80x» без повторов.",
   "zero-reps-or-sets": "Повторов и подходов должно быть не меньше одного.",
 };
 
-export function PlanEditor({ journal, workoutId, initialText, onClose, onApplied }: PlanEditorProps) {
-  const [text, setText] = useState(initialText);
-  const [leftOut, setLeftOut] = useState(false);
-  const lines = text.split(/\r?\n/).filter((line) => line.trim() !== "");
-  const parsed = lines.map((line) => ({ line, result: parsePlanLine(line) }));
+type Outcome = "editing" | "lines-skipped" | "failed";
+
+export function PlanEditor({ journal, workoutId, draft, onClose, onApplied }: PlanEditorProps) {
+  const [notation, setNotation] = useState(draft.notation);
+  const [outcome, setOutcome] = useState<Outcome>("editing");
+  const lines = notation.split(/\r?\n/).filter((line) => line.trim() !== "");
+  const readings = parsePlan(notation);
 
   function change(value: string) {
-    setText(value);
-    setLeftOut(false);
-    savePlanDraft(workoutId, value);
+    setNotation(value);
+    setOutcome("editing");
+    savePlanDraft(workoutId, { notation: value, basedOn: draft.basedOn });
   }
 
   async function done() {
-    const results = await journal.setPlan(workoutId, text);
-    await onApplied();
-    if (results.every((r) => r.ok)) {
-      clearPlanDraft(workoutId);
-      onClose();
-    } else {
-      setLeftOut(true);
+    try {
+      const results = await journal.setPlan(workoutId, notation);
+      await onApplied();
+      if (results.every((r) => r.ok)) {
+        clearPlanDraft(workoutId);
+        onClose();
+      } else {
+        setOutcome("lines-skipped");
+      }
+    } catch {
+      setOutcome("failed");
     }
   }
 
@@ -51,9 +59,8 @@ export function PlanEditor({ journal, workoutId, initialText, onClose, onApplied
       <label className="field">
         <span className="field-label">План: одна строка — одно упражнение</span>
         <textarea
-          id={`plan-text-${workoutId}`}
           className="plan-text"
-          value={text}
+          value={notation}
           onChange={(e) => change(e.target.value)}
           placeholder={"bench press 80x5x3 70x8\npull-up x8x3"}
           rows={Math.max(4, lines.length + 1)}
@@ -64,14 +71,14 @@ export function PlanEditor({ journal, workoutId, initialText, onClose, onApplied
         />
       </label>
 
-      {parsed.length > 0 ? (
+      {readings.length > 0 ? (
         <ul className="plan-lines">
-          {parsed.map(({ line, result }, i) =>
-            result.ok ? (
+          {readings.map((reading, i) =>
+            reading.ok ? (
               <li key={i} className="plan-line">
-                <span className="plan-line-name">✓ {result.exerciseName}</span>
+                <span className="plan-line-name">✓ {reading.exerciseName}</span>
                 <span className="plan-line-groups">
-                  {result.groups.map((g, j) => (
+                  {reading.groups.map((g, j) => (
                     <span key={j} className="plan-chip">
                       {g.weight === null ? "без веса" : `${showNumber(g.weight)} кг`} × {g.reps}
                       {g.sets > 1 ? ` × ${g.sets} подх.` : ""}
@@ -81,17 +88,21 @@ export function PlanEditor({ journal, workoutId, initialText, onClose, onApplied
               </li>
             ) : (
               <li key={i} className="plan-line bad">
-                <span className="plan-line-name">✕ {line}</span>
-                <span className="plan-line-problem">{PROBLEMS[result.problem]}</span>
+                <span className="plan-line-name">✕ {lines[i]}</span>
+                <span className="plan-line-problem">{PROBLEMS[reading.problem]}</span>
               </li>
             ),
           )}
         </ul>
       ) : null}
 
-      {leftOut ? (
-        <p className="plan-left-out" role="status">
+      {outcome === "lines-skipped" ? (
+        <p className="plan-message" role="status">
           Строки с ошибками не попали в план. Исправьте или удалите их и снова нажмите «Готово».
+        </p>
+      ) : outcome === "failed" ? (
+        <p className="plan-message" role="alert">
+          План не сохранился: в тренировке уже записаны подходы, и план теперь менять нельзя. Нажмите «Отмена».
         </p>
       ) : null}
 

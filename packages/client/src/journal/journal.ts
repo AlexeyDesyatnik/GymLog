@@ -1,5 +1,5 @@
 import { Dexie, type EntityTable } from "dexie";
-import { checkRpe, checkSetValues, exerciseNameKey, formatPlanLine, parsePlanLine, type PlanLine } from "@gymlog/shared";
+import { checkRpe, checkSetValues, exerciseNameKey, formatPlanLine, parsePlan, type PlanLine } from "@gymlog/shared";
 import type { EntryRecord, ExerciseRecord, LocalDate, SetRecord, SyncedRecord, WorkoutRecord } from "@gymlog/shared";
 import { newId } from "./ids.ts";
 
@@ -39,6 +39,8 @@ export interface Entry {
 
 export interface WorkoutWithEntries extends Workout {
   entries: Entry[];
+  /** The Plan can't be changed once a Performed Set is recorded (re-editing comes in a later ticket). */
+  planLocked: boolean;
 }
 
 /** The single interface the UI uses for everything a user does with their Workouts. */
@@ -58,12 +60,12 @@ export interface Journal {
   /** Sets the Comment; blank text clears it. */
   setComment(setId: string, text: string): Promise<void>;
   /**
-   * Replaces the Workout's Plan with the understood lines of this Plan notation text,
-   * and reports how each non-empty line was understood.
+   * Replaces the Workout's Plan with the understood lines of this Plan notation, and
+   * reports how each non-empty line was understood. Refused once the Plan is locked.
    */
-  setPlan(workoutId: string, text: string): Promise<PlanLine[]>;
+  setPlan(workoutId: string, notation: string): Promise<PlanLine[]>;
   /** The Workout's Plan in Plan notation, one line per planned Entry; empty when there is no Plan. */
-  getPlanText(workoutId: string): Promise<string>;
+  getPlanNotation(workoutId: string): Promise<string>;
   close(): void;
 }
 
@@ -141,6 +143,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
           plannedSets: sets.filter((s) => s.entryId === entry.id && s.kind === "planned").map(toPlannedSet),
           performedSets: sets.filter((s) => s.entryId === entry.id && s.kind === "performed").map(toPerformedSet),
         })),
+        planLocked: isPlanLocked(sets),
       };
     },
 
@@ -196,11 +199,8 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       await db.sets.update(setId, { comment: text.trim() || null, updatedAt: now() });
     },
 
-    async setPlan(workoutId, text) {
-      const lines = text
-        .split(/\r?\n/)
-        .filter((line) => line.trim() !== "")
-        .map(parsePlanLine);
+    async setPlan(workoutId, notation) {
+      const lines = parsePlan(notation);
       await db.transaction("rw", [db.workouts, db.exercises, db.entries, db.sets], async () => {
         const workout = await db.workouts.get(workoutId);
         if (!workout || workout.deleted) throw new RangeError(`No Workout ${workoutId}`);
@@ -210,8 +210,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         const sets = (await db.sets.where("entryId").anyOf(entries.map((e) => e.id)).toArray()).filter(
           (s) => !s.deleted,
         );
-        // Re-editing a Plan with recorded Sets needs reconciliation, which comes in a later ticket.
-        if (sets.some((s) => s.kind === "performed")) {
+        if (isPlanLocked(sets)) {
           throw new RangeError("The Plan can't be changed once the Workout has Performed Sets");
         }
 
@@ -251,7 +250,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       return lines;
     },
 
-    async getPlanText(workoutId) {
+    async getPlanNotation(workoutId) {
       const workout = await this.getWorkout(workoutId);
       return (workout?.entries ?? [])
         .filter((entry) => entry.plannedSets.length > 0)
@@ -279,4 +278,9 @@ function toPerformedSet(record: SetRecord): PerformedSet {
 
 function toPlannedSet(record: SetRecord): PlannedSet {
   return { id: record.id, weight: record.weight, reps: record.reps };
+}
+
+/** Re-editing a Plan with recorded Sets needs reconciliation, which comes in a later ticket. */
+function isPlanLocked(sets: SetRecord[]): boolean {
+  return sets.some((s) => s.kind === "performed");
 }

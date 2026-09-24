@@ -497,7 +497,7 @@ a.workout-date:focus-visible {
 }
 
 .plan-line-problem,
-.plan-left-out {
+.plan-message {
   margin: 0;
   font-size: 14px;
   color: var(--danger);

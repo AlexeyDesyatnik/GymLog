@@ -4,20 +4,18 @@ import type { Journal, WorkoutWithEntries } from "../journal/journal.ts";
 import { EntryCard } from "./EntryCard.tsx";
 import { formatWorkoutDate } from "./format.ts";
 import { PlanEditor } from "./PlanEditor.tsx";
-import { loadPlanDraft } from "./planDraft.ts";
+import { clearPlanDraft, loadPlanDraft, type PlanDraft } from "./planDraft.ts";
 import { workoutsHref } from "./useRoute.ts";
 
 function PlanButton({ workout, onOpen }: { workout: WorkoutWithEntries; onOpen: () => void }) {
   const hasPlan = workout.entries.some((e) => e.plannedSets.length > 0);
-  // Until re-editing with recorded Sets is built, the Plan is fixed once a Set is recorded.
-  const locked = workout.entries.some((e) => e.performedSets.length > 0);
-  if (locked && !hasPlan) return null;
+  if (workout.planLocked && !hasPlan) return null;
   return (
     <div className="plan-button">
-      <button className="button" type="button" onClick={onOpen} disabled={locked}>
+      <button className="button" type="button" onClick={onOpen} disabled={workout.planLocked}>
         {hasPlan ? "Изменить план" : "Написать план"}
       </button>
-      {locked ? <p className="hint">План нельзя менять, когда уже записаны подходы.</p> : null}
+      {workout.planLocked ? <p className="hint">План нельзя менять, когда уже записаны подходы.</p> : null}
     </div>
   );
 }
@@ -32,19 +30,37 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
   /** undefined while loading, null when there is no such Workout. */
   const [workout, setWorkout] = useState<WorkoutWithEntries | null | undefined>(undefined);
   const [exerciseName, setExerciseName] = useState("");
-  /** The Plan editor's starting text while it is open; an unfinished draft reopens it. */
-  const [planText, setPlanText] = useState<string | null>(() => loadPlanDraft(workoutId));
+  /** What the Plan editor works on while it is open. */
+  const [planDraft, setPlanDraft] = useState<PlanDraft | null>(null);
 
   const reload = useCallback(async () => {
     setWorkout((await journal.getWorkout(workoutId)) ?? null);
   }, [journal, workoutId]);
 
+  /** The editor's starting point: an unfinished draft of the current Plan, or the Plan itself. */
+  const currentDraft = useCallback(async (): Promise<PlanDraft | null> => {
+    const [stored, current] = [loadPlanDraft(workoutId), await journal.getWorkout(workoutId)];
+    if (!current || current.planLocked) {
+      clearPlanDraft(workoutId);
+      return null;
+    }
+    const notation = await journal.getPlanNotation(workoutId);
+    if (stored && stored.basedOn === notation) return stored;
+    // A draft of a Plan that has changed since would hide the change, so it goes.
+    clearPlanDraft(workoutId);
+    return { notation, basedOn: notation };
+  }, [journal, workoutId]);
+
   useEffect(() => {
     void reload();
-  }, [reload]);
+    // An unfinished draft reopens the editor, as long as it still fits the Plan.
+    void currentDraft().then((draft) => {
+      if (draft && loadPlanDraft(workoutId)) setPlanDraft(draft);
+    });
+  }, [reload, currentDraft, workoutId]);
 
   async function openPlanEditor() {
-    setPlanText(loadPlanDraft(workoutId) ?? (await journal.getPlanText(workoutId)));
+    setPlanDraft(await currentDraft());
   }
 
   async function addEntry(event: FormEvent) {
@@ -74,12 +90,12 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
         {workout.date === today ? <span className="today">сегодня</span> : null}
       </h1>
 
-      {planText !== null ? (
+      {planDraft !== null ? (
         <PlanEditor
           journal={journal}
           workoutId={workoutId}
-          initialText={planText}
-          onClose={() => setPlanText(null)}
+          draft={planDraft}
+          onClose={() => setPlanDraft(null)}
           onApplied={reload}
         />
       ) : (

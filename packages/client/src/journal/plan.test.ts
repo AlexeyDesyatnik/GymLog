@@ -14,7 +14,7 @@ async function planOf(journal: Awaited<ReturnType<typeof journalWithWorkout>>["j
   return workout!.entries.map((e) => [e.exercise.primaryName, e.plannedSets.map((s) => [s.weight, s.reps])]);
 }
 
-test("a Plan line becomes an Entry with one Planned Set per set", async () => {
+test("a Plan line becomes an Entry with as many Planned Sets as the group says", async () => {
   const { journal, workout } = await journalWithWorkout();
 
   await journal.setPlan(workout.id, "bench press 80x5x3");
@@ -145,15 +145,15 @@ test("lines that aren't understood create nothing, and each line reports how it 
   ]);
 });
 
-test("the Plan reads back as text with x and a decimal comma", async () => {
+test("the Plan reads back in Plan notation with x and a decimal comma", async () => {
   const { journal, workout } = await journalWithWorkout();
 
   await journal.setPlan(workout.id, "bench press 80x5x2 70x8\npull-up x8x3\ndumbbell press 22.5x10");
 
-  expect(await journal.getPlanText(workout.id)).toBe("bench press 80x5x2 70x8\npull-up x8x3\ndumbbell press 22,5x10");
+  expect(await journal.getPlanNotation(workout.id)).toBe("bench press 80x5x2 70x8\npull-up x8x3\ndumbbell press 22,5x10");
 });
 
-test("reading back tidies the text: repeated groups merge, separators become x, names become Primary names", async () => {
+test("reading back tidies the notation: repeated groups merge, separators become x, names become Primary names", async () => {
   const journal = freshJournal();
   const earlier = await journal.createWorkout(localDate("2026-09-21"));
   await journal.addEntry(earlier.id, "Bench Press");
@@ -161,13 +161,13 @@ test("reading back tidies the text: repeated groups merge, separators become x, 
 
   await journal.setPlan(workout.id, "squat 100x5 100x5 100x3\nbench   PRESS 80 / 5 / 3");
 
-  expect(await journal.getPlanText(workout.id)).toBe("squat 100x5x2 100x3\nBench Press 80x5x3");
+  expect(await journal.getPlanNotation(workout.id)).toBe("squat 100x5x2 100x3\nBench Press 80x5x3");
 });
 
-test("a Workout with no Plan reads back as empty text", async () => {
+test("a Workout with no Plan reads back as empty Plan notation", async () => {
   const { journal, workout } = await journalWithWorkout();
 
-  expect(await journal.getPlanText(workout.id)).toBe("");
+  expect(await journal.getPlanNotation(workout.id)).toBe("");
 });
 
 test("setting the Plan again replaces it, and Entries added outside the Plan stay after it", async () => {
@@ -191,5 +191,56 @@ test("the Plan can't be set once the Workout has Performed Sets", async () => {
   await journal.addPerformedSet(entry.id, { weight: 100, reps: 5 });
 
   await expect(journal.setPlan(workout.id, "squat 110x5x3")).rejects.toThrow();
-  expect(await journal.getPlanText(workout.id)).toBe("squat 100x5x3");
+  expect(await journal.getPlanNotation(workout.id)).toBe("squat 100x5x3");
+});
+
+test("a bodyweight group may leave out the sets and may use a slash", async () => {
+  const { journal, workout } = await journalWithWorkout();
+
+  await journal.setPlan(workout.id, "dips x8\npull-up /8/2");
+
+  expect(await planOf(journal, workout.id)).toEqual([
+    ["dips", [[null, 8]]],
+    [
+      "pull-up",
+      [
+        [null, 8],
+        [null, 8],
+      ],
+    ],
+  ]);
+});
+
+test("a mistyped group isn't taken as part of the Exercise name", async () => {
+  const { journal, workout } = await journalWithWorkout();
+
+  const lines = await journal.setPlan(workout.id, "bench press 80x 70x8\nrow 60x8x3x2 70x8");
+
+  expect(lines.map((l) => (l.ok ? "ok" : l.problem))).toEqual(["broken-group", "broken-group"]);
+  expect(await planOf(journal, workout.id)).toEqual([]);
+});
+
+test("a stray space before a separator still joins the group", async () => {
+  const { journal, workout } = await journalWithWorkout();
+
+  await journal.setPlan(workout.id, "squat 100 x5 90 x 5");
+
+  expect(await planOf(journal, workout.id)).toEqual([
+    [
+      "squat",
+      [
+        [100, 5],
+        [90, 5],
+      ],
+    ],
+  ]);
+});
+
+test("the Workout says its Plan is locked once a Performed Set is recorded", async () => {
+  const { journal, workout } = await journalWithWorkout();
+  await journal.setPlan(workout.id, "squat 100x5x3");
+  const before = (await journal.getWorkout(workout.id))!.planLocked;
+  await journal.addPerformedSet((await journal.getWorkout(workout.id))!.entries[0]!.id, { weight: 100, reps: 5 });
+
+  expect([before, (await journal.getWorkout(workout.id))!.planLocked]).toEqual([false, true]);
 });
