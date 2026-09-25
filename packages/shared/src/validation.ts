@@ -19,7 +19,8 @@ export const RPE_SCALE: readonly number[] = [RPE_BELOW_5, 5, 6, 7, 7.5, 8, 8.5, 
 /** RPE is a value on the scale, or null when not given. */
 export function checkRpe(rpe: number | null): void {
   if (rpe !== null && !RPE_SCALE.includes(rpe)) {
-    throw new RangeError(`RPE must be one of below 5, 5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10, not ${rpe}`);
+    const scale = RPE_SCALE.map((value) => (value === RPE_BELOW_5 ? "below 5" : String(value))).join(", ");
+    throw new RangeError(`RPE must be one of ${scale}, not ${rpe}`);
   }
 }
 
