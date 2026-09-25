@@ -244,3 +244,19 @@ test("the Workout says its Plan is locked once a Performed Set is recorded", asy
 
   expect([before, (await journal.getWorkout(workout.id))!.planLocked]).toEqual([false, true]);
 });
+
+test("the Plan can be set again once its Performed Sets are deleted, including an Entry added on the fly", async () => {
+  const { journal, workout } = await journalWithWorkout();
+  await journal.setPlan(workout.id, "squat 100x5x3");
+  const planned = (await journal.getWorkout(workout.id))!.entries[0]!;
+  const set = await journal.addPerformedSet(planned.id, { weight: 100, reps: 5 });
+  const extra = await journal.addEntry(workout.id, "plank");
+  await journal.addPerformedSet(extra.id, { weight: null, reps: 1 });
+
+  await journal.deletePerformedSet(set.id);
+  await journal.deleteEntry(extra.id);
+
+  expect((await journal.getWorkout(workout.id))!.planLocked).toBe(false);
+  await journal.setPlan(workout.id, "squat 110x5x3");
+  expect((await journal.getWorkout(workout.id))!.planNotation).toBe("squat 110x5x3");
+});

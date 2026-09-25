@@ -9,3 +9,11 @@ export function formatWorkoutDate(date: LocalDate, today: LocalDate): string {
   const sameYear = value.getFullYear() === localDateToDate(today).getFullYear();
   return (sameYear ? withoutYear : withYear).format(value);
 }
+
+const setWords: Record<string, string> = { one: "подход", few: "подхода", many: "подходов", other: "подхода" };
+const plural = new Intl.PluralRules("ru-RU");
+
+/** "1 подход", "3 подхода", "5 подходов". */
+export function formatSetCount(count: number): string {
+  return `${count} ${setWords[plural.select(count)]}`;
+}

@@ -121,6 +121,15 @@ input[type="date"] {
   padding: 0 10px;
 }
 
+.button.quiet.danger-text {
+  color: var(--danger);
+}
+
+/* Always on screen, so it stays out of the way; the confirmation that follows is the loud part. */
+.button.quiet.muted-text {
+  color: var(--muted);
+}
+
 .button:disabled {
   opacity: 0.45;
   cursor: default;
@@ -262,6 +271,28 @@ a.workout-link {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.entry.confirming,
+.set.confirming {
+  gap: 10px;
+}
+
+.entry.confirming {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+
+.set-delete {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .entry-name {

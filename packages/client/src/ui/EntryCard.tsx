@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { formatPlanSets } from "@gymlog/shared";
 import type { Entry, Journal } from "../journal/journal.ts";
 import { parseReps, parseWeight, showNumber } from "./numbers.ts";
+import { formatSetCount } from "./format.ts";
 import { SetRow } from "./SetRow.tsx";
 
 interface EntryCardProps {
@@ -17,6 +18,8 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
   const [reps, setReps] = useState(last ? String(last.reps) : "");
   /** The values are still the previous Set's (number prefill), shown muted until edited. */
   const [prefilled, setPrefilled] = useState(last !== undefined);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const planned = entry.plannedSets.length > 0;
   const parsedWeight = parseWeight(weight);
   const parsedReps = parseReps(reps);
 
@@ -28,10 +31,43 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
     await onChange();
   }
 
+  async function deleteEntry() {
+    await journal.deleteEntry(entry.id);
+    await onChange();
+  }
+
+  if (confirmingDelete) {
+    const sets = entry.performedSets.length;
+    return (
+      <li className="entry confirming" role="alertdialog" aria-label="Подтверждение удаления">
+        <p className="confirm-text">
+          Удалить {entry.exercise.primaryName}
+          {sets > 0 ? ` и ${formatSetCount(sets)}` : ""}?
+        </p>
+        <div className="actions">
+          <button className="button danger" type="button" onClick={() => void deleteEntry()}>
+            Удалить
+          </button>
+          <button className="button" type="button" onClick={() => setConfirmingDelete(false)} autoFocus>
+            Отмена
+          </button>
+        </div>
+      </li>
+    );
+  }
+
   return (
     <li className="entry">
-      <h2 className="entry-name">{entry.exercise.primaryName}</h2>
-      {entry.plannedSets.length > 0 ? (
+      <div className="entry-head">
+        <h2 className="entry-name">{entry.exercise.primaryName}</h2>
+        {/* An Entry from the Plan is removed by editing the Plan text. */}
+        {planned ? null : (
+          <button className="button quiet muted-text" type="button" onClick={() => setConfirmingDelete(true)}>
+            Удалить
+          </button>
+        )}
+      </div>
+      {planned ? (
         <p className="entry-plan">
           <span className="entry-plan-label">План</span> {formatPlanSets(entry.plannedSets)}
         </p>

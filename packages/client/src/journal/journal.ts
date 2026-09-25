@@ -62,8 +62,11 @@ export interface Journal {
   deleteWorkout(id: string): Promise<void>;
   /** Adds an Entry for the Exercise with this name, creating the Exercise if no name matches. */
   addEntry(workoutId: string, exerciseName: string): Promise<Entry>;
+  /** Deletes an Entry added on the fly, with its Sets. */
+  deleteEntry(entryId: string): Promise<void>;
   addPerformedSet(entryId: string, values: SetValues): Promise<PerformedSet>;
   editPerformedSet(setId: string, values: SetValues): Promise<void>;
+  deletePerformedSet(setId: string): Promise<void>;
   /** Sets RPE to a value on RPE_SCALE, or clears it with null. */
   setRpe(setId: string, rpe: number | null): Promise<void>;
   /** Sets the Comment; blank text clears it. */
@@ -192,6 +195,19 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       });
     },
 
+    async deleteEntry(entryId) {
+      await db.transaction("rw", [db.entries, db.sets], async () => {
+        const entry = await db.entries.get(entryId);
+        if (!entry || entry.deleted) throw new RangeError(`No Entry ${entryId}`);
+        const sets = await db.sets.where("entryId").equals(entryId).toArray();
+        if (sets.some((s) => !s.deleted && s.kind === "planned")) {
+          throw new RangeError("An Entry from the Plan is removed by editing the Plan text");
+        }
+        // Like a Workout, the Entry's tombstone hides its Sets.
+        await db.entries.update(entryId, { deleted: true, updatedAt: now() });
+      });
+    },
+
     async addPerformedSet(entryId, { weight, reps }) {
       checkSetValues({ weight, reps });
       return db.transaction("rw", db.sets, async () => {
@@ -214,6 +230,14 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     async editPerformedSet(setId, { weight, reps }) {
       checkSetValues({ weight, reps });
       await db.sets.update(setId, { weight, reps, updatedAt: now() });
+    },
+
+    async deletePerformedSet(setId) {
+      await db.transaction("rw", db.sets, async () => {
+        const set = await db.sets.get(setId);
+        if (!set || set.deleted || set.kind !== "performed") throw new RangeError(`No Performed Set ${setId}`);
+        await db.sets.update(setId, { deleted: true, updatedAt: now() });
+      });
     },
 
     async setRpe(setId, rpe) {

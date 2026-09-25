@@ -21,6 +21,7 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
   const [editing, setEditing] = useState<Field | null>(null);
   const weightField = useRef<HTMLInputElement>(null);
   const repsField = useRef<HTMLInputElement>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [pickingRpe, setPickingRpe] = useState(false);
   const [commenting, setCommenting] = useState(false);
   const [comment, setComment] = useState(set.comment ?? "");
@@ -54,6 +55,17 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
     setEditing(null);
   }
 
+  function askToDelete() {
+    valuesAutosave.flush();
+    setEditing(null);
+    setConfirmingDelete(true);
+  }
+
+  async function deleteSet() {
+    await journal.deletePerformedSet(set.id);
+    await onChange();
+  }
+
   async function saveValues(weightText: string, repsText: string) {
     const newWeight = parseWeight(weightText);
     const newReps = parseReps(repsText);
@@ -78,6 +90,22 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
 
   const showComment = commenting || comment.trim() !== "";
   const shownWeight = set.weight === null ? null : showNumber(set.weight);
+
+  if (confirmingDelete) {
+    return (
+      <li className="set confirming" role="alertdialog" aria-label="Подтверждение удаления">
+        <p className="confirm-text">Удалить подход {number}?</p>
+        <div className="actions">
+          <button className="button danger" type="button" onClick={() => void deleteSet()}>
+            Удалить
+          </button>
+          <button className="button" type="button" onClick={() => setConfirmingDelete(false)} autoFocus>
+            Отмена
+          </button>
+        </div>
+      </li>
+    );
+  }
 
   return (
     <li className="set">
@@ -151,6 +179,20 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
           {set.rpe === null ? "RPE" : `RPE ${showRpe(set.rpe)}`}
         </button>
       </div>
+
+      {editing === null ? null : (
+        <div className="set-delete">
+          <button
+            className="button quiet danger-text"
+            type="button"
+            // Keeps the focus in the field, so editing doesn't close before the tap lands.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={askToDelete}
+          >
+            Удалить подход
+          </button>
+        </div>
+      )}
 
       {pickingRpe ? (
         <div className="rpe-picker" role="group" aria-label={`RPE подхода ${number}`}>
