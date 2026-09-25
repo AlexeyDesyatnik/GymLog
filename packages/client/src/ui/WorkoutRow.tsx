@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { localDate, type LocalDate } from "@gymlog/shared";
-import type { Workout } from "../journal/journal.ts";
+import type { WorkoutSummary } from "../journal/journal.ts";
 import { formatWorkoutDate } from "./format.ts";
 import { workoutHref } from "./useRoute.ts";
 
 interface WorkoutRowProps {
-  workout: Workout;
+  workout: WorkoutSummary;
   today: LocalDate;
   onChangeDate: (date: LocalDate) => Promise<void>;
   onDelete: () => Promise<void>;
@@ -78,9 +78,14 @@ export function WorkoutRow({ workout, today, onChangeDate, onDelete }: WorkoutRo
 
   return (
     <li className="workout">
-      <a className="workout-date" href={workoutHref(workout.id)}>
-        <span>{label}</span>
-        {workout.date === today ? <span className="today">сегодня</span> : null}
+      <a className="workout-link" href={workoutHref(workout.id)}>
+        <span className="workout-date">
+          <span>{label}</span>
+          {workout.date === today ? <span className="today">сегодня</span> : null}
+        </span>
+        {workout.exerciseNames.length > 0 ? (
+          <span className="workout-exercises">{workout.exerciseNames.join(" · ")}</span>
+        ) : null}
       </a>
       <div className="actions">
         <button className="button quiet" type="button" onClick={() => setMode("changing-date")}>

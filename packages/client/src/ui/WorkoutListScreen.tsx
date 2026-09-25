@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { localDate, localDateOf, type LocalDate } from "@gymlog/shared";
-import type { Journal, Workout } from "../journal/journal.ts";
+import type { Journal, WorkoutSummary } from "../journal/journal.ts";
 import { WorkoutRow } from "./WorkoutRow.tsx";
 
 export function WorkoutListScreen({ journal, today }: { journal: Journal; today: LocalDate }) {
-  const [workouts, setWorkouts] = useState<Workout[] | null>(null);
+  const [workouts, setWorkouts] = useState<WorkoutSummary[] | null>(null);
   /** The date the user picked for a new Workout; until they pick one, it's today. */
   const [chosenDate, setChosenDate] = useState<string | null>(null);
   const newDate = chosenDate ?? today;

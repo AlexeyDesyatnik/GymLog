@@ -201,11 +201,27 @@ input:focus-visible {
   font-weight: 600;
 }
 
-a.workout-date {
+a.workout-link {
   color: inherit;
   text-decoration: none;
   min-height: 44px;
   flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+
+.workout-exercises {
+  font-size: 13px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 
 /* Workout screen */
@@ -403,7 +419,7 @@ a.workout-date {
 .rpe-option:focus-visible,
 .add-comment:focus-visible,
 .back:focus-visible,
-a.workout-date:focus-visible {
+a.workout-link:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

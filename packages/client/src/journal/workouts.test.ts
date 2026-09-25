@@ -42,8 +42,8 @@ test("changing a Workout's date reschedules it", async () => {
   await journal.changeWorkoutDate(moved.id, localDate("2026-09-25"));
 
   expect(await journal.listWorkouts()).toEqual([
-    { id: moved.id, date: "2026-09-25" },
-    { id: other.id, date: "2026-09-22" },
+    { id: moved.id, date: "2026-09-25", exerciseNames: [] },
+    { id: other.id, date: "2026-09-22", exerciseNames: [] },
   ]);
 });
 
@@ -54,7 +54,7 @@ test("a deleted Workout is no longer listed", async () => {
 
   await journal.deleteWorkout(deleted.id);
 
-  expect(await journal.listWorkouts()).toEqual([{ id: kept.id, date: "2026-09-20" }]);
+  expect(await journal.listWorkouts()).toEqual([{ id: kept.id, date: "2026-09-20", exerciseNames: [] }]);
 });
 
 test("Workouts survive closing and reopening the Journal", async () => {
@@ -67,5 +67,67 @@ test("Workouts survive closing and reopening the Journal", async () => {
 
   const reopened = openJournal({ name });
 
-  expect(await reopened.listWorkouts()).toEqual([{ id: kept.id, date: "2026-09-24" }]);
+  expect(await reopened.listWorkouts()).toEqual([{ id: kept.id, date: "2026-09-24", exerciseNames: [] }]);
+});
+
+test("a listed Workout names the Exercises of its Plan, in Plan order", async () => {
+  const journal = freshJournal();
+  const workout = await journal.createWorkout(localDate("2026-09-24"));
+
+  await journal.setPlan(workout.id, "squat 100x5x3\nbench press 80x5x3\npull-up 0x8x3");
+
+  const [listed] = await journal.listWorkouts();
+  expect(listed!.exerciseNames).toEqual(["squat", "bench press", "pull-up"]);
+});
+
+test("an Exercise with several Entries is named once, where it first appears", async () => {
+  const journal = freshJournal();
+  const workout = await journal.createWorkout(localDate("2026-09-24"));
+
+  await journal.addEntry(workout.id, "bench press");
+  await journal.addEntry(workout.id, "squat");
+  await journal.addEntry(workout.id, "Bench Press");
+
+  const [listed] = await journal.listWorkouts();
+  expect(listed!.exerciseNames).toEqual(["bench press", "squat"]);
+});
+
+test("Exercises of a replaced Plan are no longer named", async () => {
+  const journal = freshJournal();
+  const workout = await journal.createWorkout(localDate("2026-09-24"));
+  await journal.setPlan(workout.id, "squat 100x5x3\nbench press 80x5x3");
+
+  await journal.setPlan(workout.id, "deadlift 140x5x1\nbench press 80x5x3");
+
+  const [listed] = await journal.listWorkouts();
+  expect(listed!.exerciseNames).toEqual(["deadlift", "bench press"]);
+});
+
+test("each listed Workout names only its own Exercises, and one without Entries names none", async () => {
+  const journal = freshJournal();
+  const planned = await journal.createWorkout(localDate("2026-09-22"));
+  await journal.setPlan(planned.id, "squat 100x5x3");
+  const improvised = await journal.createWorkout(localDate("2026-09-23"));
+  const entry = await journal.addEntry(improvised.id, "pull-up");
+  await journal.addPerformedSet(entry.id, { weight: null, reps: 8 });
+  await journal.addPerformedSet(entry.id, { weight: null, reps: 7 });
+  const empty = await journal.createWorkout(localDate("2026-09-24"));
+
+  const listed = await journal.listWorkouts();
+  expect(listed.map((w) => [w.id, w.exerciseNames])).toEqual([
+    [empty.id, []],
+    [improvised.id, ["pull-up"]],
+    [planned.id, ["squat"]],
+  ]);
+});
+
+test("Exercises added outside the Plan are named after the planned ones", async () => {
+  const journal = freshJournal();
+  const workout = await journal.createWorkout(localDate("2026-09-24"));
+  await journal.addEntry(workout.id, "plank");
+
+  await journal.setPlan(workout.id, "squat 100x5x3");
+
+  const [listed] = await journal.listWorkouts();
+  expect(listed!.exerciseNames).toEqual(["squat", "plank"]);
 });

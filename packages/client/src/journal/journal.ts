@@ -8,6 +8,12 @@ export interface Workout {
   date: LocalDate;
 }
 
+/** A Workout as shown in the list of Workouts. */
+export interface WorkoutSummary extends Workout {
+  /** Primary names of the Workout's Exercises, in Entry order. */
+  exerciseNames: string[];
+}
+
 export interface Exercise {
   id: string;
   primaryName: string;
@@ -48,7 +54,7 @@ export interface WorkoutWithEntries extends Workout {
 /** The single interface the UI uses for everything a user does with their Workouts. */
 export interface Journal {
   createWorkout(date: LocalDate): Promise<Workout>;
-  listWorkouts(): Promise<Workout[]>;
+  listWorkouts(): Promise<WorkoutSummary[]>;
   /** The Workout with its Entries, or undefined if there is no such Workout. */
   getWorkout(id: string): Promise<WorkoutWithEntries | undefined>;
   changeWorkoutDate(id: string, date: LocalDate): Promise<void>;
@@ -121,8 +127,18 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     },
 
     async listWorkouts() {
-      const records = await db.workouts.orderBy("[date+createdAt]").reverse().toArray();
-      return records.filter((r) => !r.deleted).map(toWorkout);
+      const records = (await db.workouts.orderBy("[date+createdAt]").reverse().toArray()).filter((r) => !r.deleted);
+      const entries = (await db.entries.where("workoutId").anyOf(records.map((r) => r.id)).toArray())
+        .filter((e) => !e.deleted)
+        .sort((a, b) => a.position - b.position);
+      const exercises = await db.exercises.bulkGet(entries.map((e) => e.exerciseId));
+      return records.map((record) => {
+        const workoutExercises = new Map<string, string>();
+        entries.forEach((entry, i) => {
+          if (entry.workoutId === record.id) workoutExercises.set(entry.exerciseId, exercises[i]!.primaryName);
+        });
+        return { ...toWorkout(record), exerciseNames: [...workoutExercises.values()] };
+      });
     },
 
     async getWorkout(id) {
