@@ -49,12 +49,8 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
 
   function stopEditing(event: FocusEvent) {
     if (event.currentTarget.contains(event.relatedTarget)) return;
+    // A half-typed value isn't saved, and the text shows the stored Set, so it simply goes away.
     valuesAutosave.flush();
-    if (!parsedWeight.ok || !parsedReps.ok) {
-      // A half-typed value isn't saved, so the row goes back to what is recorded.
-      setWeight(showNumber(set.weight));
-      setReps(String(set.reps));
-    }
     setEditing(null);
   }
 
@@ -81,7 +77,7 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
   }
 
   const showComment = commenting || comment.trim() !== "";
-  const shownWeight = parsedWeight.ok && parsedWeight.value !== null ? showNumber(parsedWeight.value) : null;
+  const shownWeight = set.weight === null ? null : showNumber(set.weight);
 
   return (
     <li className="set">
@@ -92,14 +88,14 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
             className="set-summary"
             type="button"
             onClick={startEditing}
-            aria-label={`Подход ${number}: ${shownWeight === null ? "без веса" : `${shownWeight} кг`} × ${reps}, изменить`}
+            aria-label={`Подход ${number}: ${shownWeight === null ? "без веса" : `${shownWeight} кг`} × ${set.reps}, изменить`}
           >
             <span className="set-value" data-field="weight">
               {shownWeight ?? "—"}
             </span>
             <span className="unit">кг ×</span>
             <span className="set-value reps" data-field="reps">
-              {reps}
+              {set.reps}
             </span>
             <span className="set-done" aria-hidden="true">
               ✓
@@ -187,9 +183,7 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
             commentAutosave.flush();
             setCommenting(false);
           }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-          }}
+          onKeyDown={blurOnEnter}
           placeholder="Комментарий"
           aria-label={`Комментарий к подходу ${number}`}
           enterKeyHint="done"

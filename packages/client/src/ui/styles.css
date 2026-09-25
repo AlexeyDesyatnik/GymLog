@@ -284,19 +284,14 @@ a.workout-link {
 }
 
 .set-values,
+.set-editing,
 .add-set {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.set-editing {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* A recorded Set reads as text in the same places as its fields, so tapping it to edit doesn't shift anything. */
+/* A Performed Set reads as text in the same places as its fields, so tapping it to edit doesn't shift anything. */
 .set-summary {
   display: flex;
   align-items: center;
@@ -312,6 +307,7 @@ a.workout-link {
 .set-value {
   width: 72px;
   min-height: 44px;
+  /* The field's padding plus its border, so the digits line up with the field's. */
   padding: 0 11px;
   display: flex;
   align-items: center;
@@ -439,7 +435,8 @@ a.workout-link {
   cursor: pointer;
 }
 
-/* The next Set: outlined, so it never reads as one more recorded Set. */
+/* The next Set: outlined, so it never reads as one more Performed Set.
+   The negative margin (padding plus border) keeps its fields in line with the Sets above. */
 .add-set {
   margin: 4px -7px 0;
   padding: 6px;
@@ -447,7 +444,7 @@ a.workout-link {
   border-radius: 10px;
 }
 
-.num-input.suggested {
+.num-input.prefilled {
   color: var(--muted);
 }
 
