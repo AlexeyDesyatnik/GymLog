@@ -21,3 +21,8 @@ export function parseReps(text: string): Parsed<number> {
 export function showNumber(value: number | null): string {
   return value === null ? "" : String(value).replace(".", ",");
 }
+
+/** RPE_BELOW_5 → "<5"; 7.5 → "7,5". Values below 5 left from the older scale show as "<5" too. */
+export function showRpe(rpe: number): string {
+  return rpe < 5 ? "<5" : showNumber(rpe);
+}

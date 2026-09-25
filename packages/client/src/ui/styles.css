@@ -362,7 +362,7 @@ a.workout-link {
 
 .rpe-picker {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  grid-template-columns: repeat(5, minmax(44px, 1fr));
   gap: 6px;
   margin-left: 24px;
 }

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { localDate } from "@gymlog/shared";
+import { localDate, RPE_BELOW_5 } from "@gymlog/shared";
 import { freshJournal } from "./testing.ts";
 
 async function journalWithWorkout() {
@@ -130,7 +130,7 @@ test("RPE can be set on a Performed Set and cleared again", async () => {
   expect([withRpe, (await performedSets())[0]!.rpe]).toEqual([8.5, null]);
 });
 
-test.each([1, 6.5, 10])("RPE %s is accepted", async (rpe) => {
+test.each([5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10])("RPE %s is on the scale and accepted", async (rpe) => {
   const { journal, entry, performedSets } = await journalWithEntry();
   const set = await journal.addPerformedSet(entry.id, { weight: 80, reps: 5 });
 
@@ -139,7 +139,16 @@ test.each([1, 6.5, 10])("RPE %s is accepted", async (rpe) => {
   expect((await performedSets())[0]!.rpe).toBe(rpe);
 });
 
-test.each([0.5, 10.5, 7.3, Number.NaN])("RPE %s is refused", async (rpe) => {
+test("RPE below 5 is accepted and reads back as below 5", async () => {
+  const { journal, entry, performedSets } = await journalWithEntry();
+  const set = await journal.addPerformedSet(entry.id, { weight: 80, reps: 5 });
+
+  await journal.setRpe(set.id, RPE_BELOW_5);
+
+  expect((await performedSets())[0]!.rpe).toBe(RPE_BELOW_5);
+});
+
+test.each([1, 3, 4.5, 5.5, 6.5, 10.5, 0.5, 7.3, Number.NaN])("RPE %s is off the scale and refused", async (rpe) => {
   const { journal, entry, performedSets } = await journalWithEntry();
   const set = await journal.addPerformedSet(entry.id, { weight: 80, reps: 5 });
 

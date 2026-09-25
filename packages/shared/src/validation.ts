@@ -10,10 +10,16 @@ export function checkSetValues({ weight, reps }: { weight: number | null; reps: 
   }
 }
 
-/** RPE is 1 to 10 in steps of 0.5, or null when not given. */
+/** RPE "below 5" is stored as 4, which never means exactly 4. */
+export const RPE_BELOW_5 = 4;
+
+/** Every RPE value, in order: below 5, whole numbers to 7, then half steps to 10. */
+export const RPE_SCALE: readonly number[] = [RPE_BELOW_5, 5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10];
+
+/** RPE is a value on the scale, or null when not given. */
 export function checkRpe(rpe: number | null): void {
-  if (rpe !== null && !(Number.isInteger(rpe * 2) && rpe >= 1 && rpe <= 10)) {
-    throw new RangeError(`RPE must be 1 to 10 in steps of 0.5, not ${rpe}`);
+  if (rpe !== null && !RPE_SCALE.includes(rpe)) {
+    throw new RangeError(`RPE must be one of below 5, 5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10, not ${rpe}`);
   }
 }
 

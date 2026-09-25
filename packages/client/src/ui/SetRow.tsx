@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { RPE_SCALE } from "@gymlog/shared";
 import type { Journal, PerformedSet } from "../journal/journal.ts";
-import { parseReps, parseWeight, showNumber } from "./numbers.ts";
+import { parseReps, parseWeight, showNumber, showRpe } from "./numbers.ts";
 import { useAutosave } from "./useAutosave.ts";
 
 interface SetRowProps {
@@ -9,8 +10,6 @@ interface SetRowProps {
   number: number;
   onChange: () => Promise<void>;
 }
-
-const RPE_VALUES = Array.from({ length: 19 }, (_, i) => 1 + i / 2);
 
 export function SetRow({ journal, set, number, onChange }: SetRowProps) {
   const [weight, setWeight] = useState(showNumber(set.weight));
@@ -90,20 +89,20 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
           aria-expanded={pickingRpe}
           onClick={() => setPickingRpe(!pickingRpe)}
         >
-          {set.rpe === null ? "RPE" : `RPE ${showNumber(set.rpe)}`}
+          {set.rpe === null ? "RPE" : `RPE ${showRpe(set.rpe)}`}
         </button>
       </div>
 
       {pickingRpe ? (
         <div className="rpe-picker" role="group" aria-label={`RPE подхода ${number}`}>
-          {RPE_VALUES.map((value) => (
+          {RPE_SCALE.map((value) => (
             <button
               key={value}
               className={`rpe-option${set.rpe === value ? " selected" : ""}`}
               type="button"
               onClick={() => void chooseRpe(value)}
             >
-              {showNumber(value)}
+              {showRpe(value)}
             </button>
           ))}
           {set.rpe !== null ? (

@@ -25,6 +25,7 @@ export interface PerformedSet {
   weight: number | null;
   /** Completed repetitions. */
   reps: number;
+  /** A value on RPE_SCALE (RPE_BELOW_5 for "below 5"); null when not given. */
   rpe: number | null;
   comment: string | null;
 }
@@ -63,7 +64,7 @@ export interface Journal {
   addEntry(workoutId: string, exerciseName: string): Promise<Entry>;
   addPerformedSet(entryId: string, values: SetValues): Promise<PerformedSet>;
   editPerformedSet(setId: string, values: SetValues): Promise<void>;
-  /** Sets RPE (1 to 10 in steps of 0.5), or clears it with null. */
+  /** Sets RPE to a value on RPE_SCALE, or clears it with null. */
   setRpe(setId: string, rpe: number | null): Promise<void>;
   /** Sets the Comment; blank text clears it. */
   setComment(setId: string, text: string): Promise<void>;

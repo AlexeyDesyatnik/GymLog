@@ -40,6 +40,7 @@ export interface SetRecord extends SyncedRecord {
   /** kg; null for a bodyweight Set. */
   weight: number | null;
   reps: number;
+  /** A value on RPE_SCALE; 4 means "below 5", never exactly 4. */
   rpe: number | null;
   comment: string | null;
 }
