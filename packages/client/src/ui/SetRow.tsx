@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { flushSync } from "react-dom";
 import { RPE_SCALE } from "@gymlog/shared";
 import type { Journal, PerformedSet } from "../journal/journal.ts";
 import { parseReps, parseWeight, showNumber, showRpe } from "./numbers.ts";
@@ -11,9 +12,15 @@ interface SetRowProps {
   onChange: () => Promise<void>;
 }
 
+type Field = "weight" | "reps";
+
 export function SetRow({ journal, set, number, onChange }: SetRowProps) {
   const [weight, setWeight] = useState(showNumber(set.weight));
   const [reps, setReps] = useState(String(set.reps));
+  /** The field being edited; the values show as text otherwise. */
+  const [editing, setEditing] = useState<Field | null>(null);
+  const weightField = useRef<HTMLInputElement>(null);
+  const repsField = useRef<HTMLInputElement>(null);
   const [pickingRpe, setPickingRpe] = useState(false);
   const [commenting, setCommenting] = useState(false);
   const [comment, setComment] = useState(set.comment ?? "");
@@ -21,6 +28,35 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
   const parsedReps = parseReps(reps);
   const valuesAutosave = useAutosave();
   const commentAutosave = useAutosave();
+
+  // A layout effect runs while the opening tap is still being handled, which phones
+  // require before they show the keyboard.
+  useLayoutEffect(() => {
+    if (editing === null) return;
+    const input = (editing === "weight" ? weightField : repsField).current;
+    input?.focus();
+    input?.select();
+  }, [editing]);
+
+  function startEditing(event: MouseEvent) {
+    const field = (event.target as HTMLElement).closest<HTMLElement>("[data-field]")?.dataset.field;
+    flushSync(() => {
+      setWeight(showNumber(set.weight));
+      setReps(String(set.reps));
+      setEditing(field === "weight" ? "weight" : "reps");
+    });
+  }
+
+  function stopEditing(event: FocusEvent) {
+    if (event.currentTarget.contains(event.relatedTarget)) return;
+    valuesAutosave.flush();
+    if (!parsedWeight.ok || !parsedReps.ok) {
+      // A half-typed value isn't saved, so the row goes back to what is recorded.
+      setWeight(showNumber(set.weight));
+      setReps(String(set.reps));
+    }
+    setEditing(null);
+  }
 
   async function saveValues(weightText: string, repsText: string) {
     const newWeight = parseWeight(weightText);
@@ -45,44 +81,71 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
   }
 
   const showComment = commenting || comment.trim() !== "";
+  const shownWeight = parsedWeight.ok && parsedWeight.value !== null ? showNumber(parsedWeight.value) : null;
 
   return (
     <li className="set">
       <div className="set-values">
         <span className="set-number">{number}</span>
-        <input
-          id={`set-weight-${set.id}`}
-          className="num-input"
-          type="text"
-          inputMode="decimal"
-          value={weight}
-          onChange={(e) => {
-            const text = e.target.value;
-            setWeight(text);
-            valuesAutosave.schedule(() => saveValues(text, reps));
-          }}
-          onBlur={valuesAutosave.flush}
-          placeholder="—"
-          aria-label={`Вес подхода ${number}, кг`}
-          aria-invalid={!parsedWeight.ok}
-        />
-        <span className="unit">кг ×</span>
-        <input
-          id={`set-reps-${set.id}`}
-          className="num-input reps"
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={reps}
-          onChange={(e) => {
-            const text = e.target.value;
-            setReps(text);
-            valuesAutosave.schedule(() => saveValues(weight, text));
-          }}
-          onBlur={valuesAutosave.flush}
-          aria-label={`Повторы подхода ${number}`}
-          aria-invalid={!parsedReps.ok}
-        />
+        {editing === null ? (
+          <button
+            className="set-summary"
+            type="button"
+            onClick={startEditing}
+            aria-label={`Подход ${number}: ${shownWeight === null ? "без веса" : `${shownWeight} кг`} × ${reps}, изменить`}
+          >
+            <span className="set-value" data-field="weight">
+              {shownWeight ?? "—"}
+            </span>
+            <span className="unit">кг ×</span>
+            <span className="set-value reps" data-field="reps">
+              {reps}
+            </span>
+            <span className="set-done" aria-hidden="true">
+              ✓
+            </span>
+          </button>
+        ) : (
+          <div className="set-editing" onBlur={stopEditing}>
+            <input
+              ref={weightField}
+              id={`set-weight-${set.id}`}
+              className="num-input"
+              type="text"
+              inputMode="decimal"
+              value={weight}
+              onChange={(e) => {
+                const text = e.target.value;
+                setWeight(text);
+                valuesAutosave.schedule(() => saveValues(text, reps));
+              }}
+              onKeyDown={blurOnEnter}
+              placeholder="—"
+              aria-label={`Вес подхода ${number}, кг`}
+              aria-invalid={!parsedWeight.ok}
+              enterKeyHint="done"
+            />
+            <span className="unit">кг ×</span>
+            <input
+              ref={repsField}
+              id={`set-reps-${set.id}`}
+              className="num-input reps"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={reps}
+              onChange={(e) => {
+                const text = e.target.value;
+                setReps(text);
+                valuesAutosave.schedule(() => saveValues(weight, text));
+              }}
+              onKeyDown={blurOnEnter}
+              aria-label={`Повторы подхода ${number}`}
+              aria-invalid={!parsedReps.ok}
+              enterKeyHint="done"
+            />
+          </div>
+        )}
         <button
           className={`chip-button${set.rpe === null ? "" : " filled"}`}
           type="button"
@@ -139,4 +202,8 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
       )}
     </li>
   );
+}
+
+function blurOnEnter(event: KeyboardEvent<HTMLInputElement>) {
+  if (event.key === "Enter") event.currentTarget.blur();
 }

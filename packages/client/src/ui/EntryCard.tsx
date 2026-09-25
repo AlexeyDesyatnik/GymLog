@@ -15,6 +15,8 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
   // The next Set starts from the previous one, so repeating a Set is one tap.
   const [weight, setWeight] = useState(last ? showNumber(last.weight) : "");
   const [reps, setReps] = useState(last ? String(last.reps) : "");
+  /** The values are still the previous Set's, shown muted as a suggestion until edited. */
+  const [suggested, setSuggested] = useState(last !== undefined);
   const parsedWeight = parseWeight(weight);
   const parsedReps = parseReps(reps);
 
@@ -22,6 +24,7 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
     event.preventDefault();
     if (!parsedWeight.ok || !parsedReps.ok) return;
     await journal.addPerformedSet(entry.id, { weight: parsedWeight.value, reps: parsedReps.value });
+    setSuggested(true);
     await onChange();
   }
 
@@ -48,11 +51,14 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
         </span>
         <input
           id={`new-set-weight-${entry.id}`}
-          className="num-input"
+          className={`num-input${suggested ? " suggested" : ""}`}
           type="text"
           inputMode="decimal"
           value={weight}
-          onChange={(e) => setWeight(e.target.value)}
+          onChange={(e) => {
+            setWeight(e.target.value);
+            setSuggested(false);
+          }}
           placeholder="вес"
           aria-label="Вес, кг"
           aria-invalid={!parsedWeight.ok}
@@ -60,17 +66,20 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
         <span className="unit">кг ×</span>
         <input
           id={`new-set-reps-${entry.id}`}
-          className="num-input reps"
+          className={`num-input reps${suggested ? " suggested" : ""}`}
           type="text"
           inputMode="numeric"
           pattern="[0-9]*"
           value={reps}
-          onChange={(e) => setReps(e.target.value)}
+          onChange={(e) => {
+            setReps(e.target.value);
+            setSuggested(false);
+          }}
           placeholder="повт."
           aria-label="Повторы"
           aria-invalid={reps !== "" && !parsedReps.ok}
         />
-        <button className="button" type="submit" disabled={!parsedWeight.ok || !parsedReps.ok}>
+        <button className="button primary" type="submit" disabled={!parsedWeight.ok || !parsedReps.ok}>
           + Подход
         </button>
       </form>
