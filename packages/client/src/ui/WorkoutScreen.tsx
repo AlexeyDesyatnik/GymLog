@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { flushSync } from "react-dom";
 import type { LocalDate } from "@gymlog/shared";
 import type { Journal, WorkoutWithEntries } from "../journal/journal.ts";
 import { EntryCard } from "./EntryCard.tsx";
@@ -20,6 +21,22 @@ function PlanButton({ workout, onOpen }: { workout: WorkoutWithEntries; onOpen: 
   );
 }
 
+/**
+ * The Plan editor's starting point: an unfinished draft of the current Plan, or the Plan
+ * itself; null when the Plan is locked. A draft of a Plan that has changed since would
+ * hide the change, so it is dropped.
+ */
+function draftFor(workoutId: string, workout: WorkoutWithEntries): PlanDraft | null {
+  const stored = loadPlanDraft(workoutId);
+  if (workout.planLocked) {
+    clearPlanDraft(workoutId);
+    return null;
+  }
+  if (stored && stored.basedOn === workout.planNotation) return stored;
+  clearPlanDraft(workoutId);
+  return { notation: workout.planNotation, basedOn: workout.planNotation };
+}
+
 interface WorkoutScreenProps {
   journal: Journal;
   workoutId: string;
@@ -30,37 +47,33 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
   /** undefined while loading, null when there is no such Workout. */
   const [workout, setWorkout] = useState<WorkoutWithEntries | null | undefined>(undefined);
   const [exerciseName, setExerciseName] = useState("");
-  /** What the Plan editor works on while it is open. */
-  const [planDraft, setPlanDraft] = useState<PlanDraft | null>(null);
+  /** What the Plan editor works on while it is open, and whether it opened from a tap. */
+  const [planEditor, setPlanEditor] = useState<{ draft: PlanDraft; tapped: boolean } | null>(null);
 
   const reload = useCallback(async () => {
-    setWorkout((await journal.getWorkout(workoutId)) ?? null);
+    const loaded = (await journal.getWorkout(workoutId)) ?? null;
+    setWorkout(loaded);
+    return loaded;
   }, [journal, workoutId]);
 
-  /** The editor's starting point: an unfinished draft of the current Plan, or the Plan itself. */
-  const currentDraft = useCallback(async (): Promise<PlanDraft | null> => {
-    const [stored, current] = [loadPlanDraft(workoutId), await journal.getWorkout(workoutId)];
-    if (!current || current.planLocked) {
-      clearPlanDraft(workoutId);
-      return null;
-    }
-    const notation = await journal.getPlanNotation(workoutId);
-    if (stored && stored.basedOn === notation) return stored;
-    // A draft of a Plan that has changed since would hide the change, so it goes.
-    clearPlanDraft(workoutId);
-    return { notation, basedOn: notation };
-  }, [journal, workoutId]);
+  const refresh = useCallback(async () => {
+    await reload();
+  }, [reload]);
 
   useEffect(() => {
-    void reload();
-    // An unfinished draft reopens the editor, as long as it still fits the Plan.
-    void currentDraft().then((draft) => {
-      if (draft && loadPlanDraft(workoutId)) setPlanDraft(draft);
+    void reload().then((loaded) => {
+      // An unfinished draft reopens the editor, as long as it still fits the Plan.
+      const hadDraft = loadPlanDraft(workoutId) !== null;
+      const draft = loaded ? draftFor(workoutId, loaded) : null;
+      if (hadDraft && draft && loadPlanDraft(workoutId)) setPlanEditor({ draft, tapped: false });
     });
-  }, [reload, currentDraft, workoutId]);
+  }, [reload, workoutId]);
 
-  async function openPlanEditor() {
-    setPlanDraft(await currentDraft());
+  function openPlanEditor(current: WorkoutWithEntries) {
+    // Opening synchronously within the tap lets the editor take focus and bring up the
+    // keyboard; phones only allow that during the tap itself.
+    const draft = draftFor(workoutId, current);
+    if (draft) flushSync(() => setPlanEditor({ draft, tapped: true }));
   }
 
   async function addEntry(event: FormEvent) {
@@ -90,16 +103,17 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
         {workout.date === today ? <span className="today">сегодня</span> : null}
       </h1>
 
-      {planDraft !== null ? (
+      {planEditor !== null ? (
         <PlanEditor
           journal={journal}
           workoutId={workoutId}
-          draft={planDraft}
-          onClose={() => setPlanDraft(null)}
-          onApplied={reload}
+          draft={planEditor.draft}
+          focusOnOpen={planEditor.tapped}
+          onClose={() => setPlanEditor(null)}
+          onApplied={refresh}
         />
       ) : (
-        <PlanButton workout={workout} onOpen={() => void openPlanEditor()} />
+        <PlanButton workout={workout} onOpen={() => openPlanEditor(workout)} />
       )}
 
       {workout.entries.length === 0 ? (
@@ -107,7 +121,7 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
       ) : (
         <ol className="entries">
           {workout.entries.map((entry) => (
-            <EntryCard key={entry.id} journal={journal} entry={entry} onChange={reload} />
+            <EntryCard key={entry.id} journal={journal} entry={entry} onChange={refresh} />
           ))}
         </ol>
       )}

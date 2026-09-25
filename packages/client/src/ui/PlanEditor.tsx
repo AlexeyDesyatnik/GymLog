@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { parsePlan, type PlanLineProblem } from "@gymlog/shared";
 import type { Journal } from "../journal/journal.ts";
 import { showNumber } from "./numbers.ts";
@@ -9,6 +9,8 @@ interface PlanEditorProps {
   workoutId: string;
   /** What the editor opens with: the stored Plan, or an unfinished draft of it. */
   draft: PlanDraft;
+  /** Put the cursor at the end of the notation at once, so typing can start without another tap. */
+  focusOnOpen: boolean;
   onClose: () => void;
   onApplied: () => Promise<void>;
 }
@@ -22,8 +24,18 @@ const PROBLEMS: Record<PlanLineProblem, string> = {
 
 type Outcome = "editing" | "lines-skipped" | "failed";
 
-export function PlanEditor({ journal, workoutId, draft, onClose, onApplied }: PlanEditorProps) {
+export function PlanEditor({ journal, workoutId, draft, focusOnOpen, onClose, onApplied }: PlanEditorProps) {
   const [notation, setNotation] = useState(draft.notation);
+  const field = useRef<HTMLTextAreaElement>(null);
+
+  // A layout effect runs while the opening tap is still being handled, which phones
+  // require before they show the keyboard.
+  useLayoutEffect(() => {
+    const textarea = field.current;
+    if (!focusOnOpen || !textarea) return;
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+  }, [focusOnOpen]);
   const [outcome, setOutcome] = useState<Outcome>("editing");
   const lines = notation.split(/\r?\n/).filter((line) => line.trim() !== "");
   const readings = parsePlan(notation);
@@ -59,6 +71,7 @@ export function PlanEditor({ journal, workoutId, draft, onClose, onApplied }: Pl
       <label className="field">
         <span className="field-label">План: одна строка — одно упражнение</span>
         <textarea
+          ref={field}
           className="plan-text"
           value={notation}
           onChange={(e) => change(e.target.value)}

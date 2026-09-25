@@ -150,7 +150,7 @@ test("the Plan reads back in Plan notation with x and a decimal comma", async ()
 
   await journal.setPlan(workout.id, "bench press 80x5x2 70x8\npull-up x8x3\ndumbbell press 22.5x10");
 
-  expect(await journal.getPlanNotation(workout.id)).toBe("bench press 80x5x2 70x8\npull-up x8x3\ndumbbell press 22,5x10");
+  expect((await journal.getWorkout(workout.id))!.planNotation).toBe("bench press 80x5x2 70x8\npull-up x8x3\ndumbbell press 22,5x10");
 });
 
 test("reading back tidies the notation: repeated groups merge, separators become x, names become Primary names", async () => {
@@ -161,13 +161,13 @@ test("reading back tidies the notation: repeated groups merge, separators become
 
   await journal.setPlan(workout.id, "squat 100x5 100x5 100x3\nbench   PRESS 80 / 5 / 3");
 
-  expect(await journal.getPlanNotation(workout.id)).toBe("squat 100x5x2 100x3\nBench Press 80x5x3");
+  expect((await journal.getWorkout(workout.id))!.planNotation).toBe("squat 100x5x2 100x3\nBench Press 80x5x3");
 });
 
 test("a Workout with no Plan reads back as empty Plan notation", async () => {
   const { journal, workout } = await journalWithWorkout();
 
-  expect(await journal.getPlanNotation(workout.id)).toBe("");
+  expect((await journal.getWorkout(workout.id))!.planNotation).toBe("");
 });
 
 test("setting the Plan again replaces it, and Entries added outside the Plan stay after it", async () => {
@@ -191,7 +191,7 @@ test("the Plan can't be set once the Workout has Performed Sets", async () => {
   await journal.addPerformedSet(entry.id, { weight: 100, reps: 5 });
 
   await expect(journal.setPlan(workout.id, "squat 110x5x3")).rejects.toThrow();
-  expect(await journal.getPlanNotation(workout.id)).toBe("squat 100x5x3");
+  expect((await journal.getWorkout(workout.id))!.planNotation).toBe("squat 100x5x3");
 });
 
 test("a bodyweight group may leave out the sets and may use a slash", async () => {

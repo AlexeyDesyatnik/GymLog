@@ -39,6 +39,8 @@ export interface Entry {
 
 export interface WorkoutWithEntries extends Workout {
   entries: Entry[];
+  /** The Plan in Plan notation, one line per planned Entry; empty when there is no Plan. */
+  planNotation: string;
   /** The Plan can't be changed once a Performed Set is recorded (re-editing comes in a later ticket). */
   planLocked: boolean;
 }
@@ -64,8 +66,6 @@ export interface Journal {
    * reports how each non-empty line was understood. Refused once the Plan is locked.
    */
   setPlan(workoutId: string, notation: string): Promise<PlanLine[]>;
-  /** The Workout's Plan in Plan notation, one line per planned Entry; empty when there is no Plan. */
-  getPlanNotation(workoutId: string): Promise<string>;
   close(): void;
 }
 
@@ -135,14 +135,19 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       const sets = (await db.sets.where("entryId").anyOf(entries.map((e) => e.id)).toArray())
         .filter((s) => !s.deleted)
         .sort((a, b) => a.position - b.position);
+      const views: Entry[] = entries.map((entry, i) => ({
+        id: entry.id,
+        exercise: toExercise(exercises[i]!),
+        plannedSets: sets.filter((s) => s.entryId === entry.id && s.kind === "planned").map(toPlannedSet),
+        performedSets: sets.filter((s) => s.entryId === entry.id && s.kind === "performed").map(toPerformedSet),
+      }));
       return {
         ...toWorkout(workout),
-        entries: entries.map((entry, i) => ({
-          id: entry.id,
-          exercise: toExercise(exercises[i]!),
-          plannedSets: sets.filter((s) => s.entryId === entry.id && s.kind === "planned").map(toPlannedSet),
-          performedSets: sets.filter((s) => s.entryId === entry.id && s.kind === "performed").map(toPerformedSet),
-        })),
+        entries: views,
+        planNotation: views
+          .filter((entry) => entry.plannedSets.length > 0)
+          .map((entry) => formatPlanLine(entry.exercise.primaryName, entry.plannedSets))
+          .join("\n"),
         planLocked: isPlanLocked(sets),
       };
     },
@@ -248,14 +253,6 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         }
       });
       return lines;
-    },
-
-    async getPlanNotation(workoutId) {
-      const workout = await this.getWorkout(workoutId);
-      return (workout?.entries ?? [])
-        .filter((entry) => entry.plannedSets.length > 0)
-        .map((entry) => formatPlanLine(entry.exercise.primaryName, entry.plannedSets))
-        .join("\n");
     },
 
     close() {
