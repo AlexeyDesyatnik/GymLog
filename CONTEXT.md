@@ -64,7 +64,7 @@ The number of repetitions actually completed in a Set. A failed repetition is no
 _Avoid_: Repetitions
 
 **RPE**:
-Rate of perceived exertion for a performed Set, 1 to 10 in steps of 0.5. Optional; its absence is a normal state and is never defaulted or filled in. Planned Sets do not carry RPE.
+Rate of perceived exertion for a performed Set, one of: below 5, 5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10. Finer steps only where effort is high enough to matter. Optional; its absence is a normal state and is never defaulted or filled in. Planned Sets do not carry RPE.
 _Avoid_: Target RPE, RIR
 
 **Comment** (комментарий):
