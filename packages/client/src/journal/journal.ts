@@ -119,6 +119,13 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     return created;
   }
 
+  /** The live Entries of these Workouts, in Entry order. */
+  async function liveEntriesOf(workoutIds: string[]): Promise<EntryRecord[]> {
+    return (await db.entries.where("workoutId").anyOf(workoutIds).toArray())
+      .filter((e) => !e.deleted)
+      .sort((a, b) => a.position - b.position);
+  }
+
   return {
     async createWorkout(date) {
       const record: WorkoutRecord = { ...newRecord(), date, createdAt: now() };
@@ -128,25 +135,22 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
 
     async listWorkouts() {
       const records = (await db.workouts.orderBy("[date+createdAt]").reverse().toArray()).filter((r) => !r.deleted);
-      const entries = (await db.entries.where("workoutId").anyOf(records.map((r) => r.id)).toArray())
-        .filter((e) => !e.deleted)
-        .sort((a, b) => a.position - b.position);
+      const entries = await liveEntriesOf(records.map((r) => r.id));
       const exercises = await db.exercises.bulkGet(entries.map((e) => e.exerciseId));
       return records.map((record) => {
-        const workoutExercises = new Map<string, string>();
+        // Keyed by Exercise, so each is named once, where it first appears.
+        const primaryNameByExerciseId = new Map<string, string>();
         entries.forEach((entry, i) => {
-          if (entry.workoutId === record.id) workoutExercises.set(entry.exerciseId, exercises[i]!.primaryName);
+          if (entry.workoutId === record.id) primaryNameByExerciseId.set(entry.exerciseId, exercises[i]!.primaryName);
         });
-        return { ...toWorkout(record), exerciseNames: [...workoutExercises.values()] };
+        return { ...toWorkout(record), exerciseNames: [...primaryNameByExerciseId.values()] };
       });
     },
 
     async getWorkout(id) {
       const workout = await db.workouts.get(id);
       if (!workout || workout.deleted) return undefined;
-      const entries = (await db.entries.where("workoutId").equals(id).toArray())
-        .filter((e) => !e.deleted)
-        .sort((a, b) => a.position - b.position);
+      const entries = await liveEntriesOf([id]);
       const exercises = await db.exercises.bulkGet(entries.map((e) => e.exerciseId));
       const sets = (await db.sets.where("entryId").anyOf(entries.map((e) => e.id)).toArray())
         .filter((s) => !s.deleted)
@@ -225,9 +229,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       await db.transaction("rw", [db.workouts, db.exercises, db.entries, db.sets], async () => {
         const workout = await db.workouts.get(workoutId);
         if (!workout || workout.deleted) throw new RangeError(`No Workout ${workoutId}`);
-        const entries = (await db.entries.where("workoutId").equals(workoutId).toArray())
-          .filter((e) => !e.deleted)
-          .sort((a, b) => a.position - b.position);
+        const entries = await liveEntriesOf([workoutId]);
         const sets = (await db.sets.where("entryId").anyOf(entries.map((e) => e.id)).toArray()).filter(
           (s) => !s.deleted,
         );
