@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { RPE_SCALE } from "@gymlog/shared";
 import type { Journal, PerformedSet } from "../journal/journal.ts";
 import { parseReps, parseWeight, showNumber, showRpe } from "./numbers.ts";
+import { ConfirmDelete } from "./ConfirmDelete.tsx";
 import { useAutosave } from "./useAutosave.ts";
 
 interface SetRowProps {
@@ -56,7 +57,8 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
   }
 
   function askToDelete() {
-    valuesAutosave.flush();
+    // Whatever is typed but not yet saved is dropped, so cancelling leaves the Set as it was.
+    valuesAutosave.cancel();
     setEditing(null);
     setConfirmingDelete(true);
   }
@@ -93,17 +95,12 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
 
   if (confirmingDelete) {
     return (
-      <li className="set confirming" role="alertdialog" aria-label="Подтверждение удаления">
-        <p className="confirm-text">Удалить подход {number}?</p>
-        <div className="actions">
-          <button className="button danger" type="button" onClick={() => void deleteSet()}>
-            Удалить
-          </button>
-          <button className="button" type="button" onClick={() => setConfirmingDelete(false)} autoFocus>
-            Отмена
-          </button>
-        </div>
-      </li>
+      <ConfirmDelete
+        className="set"
+        question={`Удалить подход ${number}?`}
+        onDelete={deleteSet}
+        onCancel={() => setConfirmingDelete(false)}
+      />
     );
   }
 

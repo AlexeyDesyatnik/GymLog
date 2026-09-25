@@ -62,7 +62,7 @@ export interface Journal {
   deleteWorkout(id: string): Promise<void>;
   /** Adds an Entry for the Exercise with this name, creating the Exercise if no name matches. */
   addEntry(workoutId: string, exerciseName: string): Promise<Entry>;
-  /** Deletes an Entry added on the fly, with its Sets. */
+  /** Deletes an Entry added on the fly; its Sets go with it, hidden by the Entry's tombstone. */
   deleteEntry(entryId: string): Promise<void>;
   addPerformedSet(entryId: string, values: SetValues): Promise<PerformedSet>;
   editPerformedSet(setId: string, values: SetValues): Promise<void>;
@@ -201,7 +201,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         if (!entry || entry.deleted) throw new RangeError(`No Entry ${entryId}`);
         const sets = await db.sets.where("entryId").equals(entryId).toArray();
         if (sets.some((s) => !s.deleted && s.kind === "planned")) {
-          throw new RangeError("An Entry from the Plan is removed by editing the Plan text");
+          throw new RangeError("An Entry from the Plan is removed by editing the Plan notation");
         }
         // Like a Workout, the Entry's tombstone hides its Sets.
         await db.entries.update(entryId, { deleted: true, updatedAt: now() });

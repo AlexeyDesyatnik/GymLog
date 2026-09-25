@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { localDate, type LocalDate } from "@gymlog/shared";
 import type { WorkoutSummary } from "../journal/journal.ts";
+import { ConfirmDelete } from "./ConfirmDelete.tsx";
 import { formatWorkoutDate } from "./format.ts";
 import { workoutHref } from "./useRoute.ts";
 
@@ -62,17 +63,12 @@ export function WorkoutRow({ workout, today, onChangeDate, onDelete }: WorkoutRo
 
   if (mode === "confirming-delete") {
     return (
-      <li className="workout confirming" role="alertdialog" aria-label="Подтверждение удаления">
-        <p className="confirm-text">Удалить тренировку за {label}?</p>
-        <div className="actions">
-          <button className="button danger" type="button" onClick={() => void onDelete()}>
-            Удалить
-          </button>
-          <button className="button" type="button" onClick={() => setMode("view")} autoFocus>
-            Отмена
-          </button>
-        </div>
-      </li>
+      <ConfirmDelete
+        className="workout"
+        question={`Удалить тренировку за ${label}?`}
+        onDelete={onDelete}
+        onCancel={() => setMode("view")}
+      />
     );
   }
 

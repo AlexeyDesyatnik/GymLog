@@ -7,7 +7,12 @@ const DELAY_MS = 700;
  * field loses focus or the app leaves the screen (phone locked, app switched), so
  * nothing typed is lost and half-typed values like an emptied weight aren't saved.
  */
-export function useAutosave(): { schedule: (save: () => Promise<void>) => void; flush: () => void } {
+export function useAutosave(): {
+  schedule: (save: () => Promise<void>) => void;
+  flush: () => void;
+  /** Drops what is waiting to be saved. */
+  cancel: () => void;
+} {
   const pending = useRef<(() => Promise<void>) | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -16,6 +21,11 @@ export function useAutosave(): { schedule: (save: () => Promise<void>) => void; 
     const save = pending.current;
     pending.current = null;
     if (save) void save();
+  }, []);
+
+  const cancel = useCallback(() => {
+    clearTimeout(timer.current);
+    pending.current = null;
   }, []);
 
   const schedule = useCallback(
@@ -40,5 +50,5 @@ export function useAutosave(): { schedule: (save: () => Promise<void>) => void; 
     };
   }, [flush]);
 
-  return { schedule, flush };
+  return { schedule, flush, cancel };
 }

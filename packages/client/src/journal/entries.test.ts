@@ -181,7 +181,7 @@ test("deleting a Performed Set removes it, and the others keep their order", asy
   ]);
 });
 
-test("a Planned Set can't be deleted on its own; the Plan text changes it", async () => {
+test("a Planned Set can't be deleted on its own; editing the Plan notation changes it", async () => {
   const { journal, workout } = await journalWithWorkout();
   await journal.setPlan(workout.id, "bench press 80x5x2");
   const planned = (await journal.getWorkout(workout.id))!.entries[0]!.plannedSets[0]!;
@@ -190,7 +190,7 @@ test("a Planned Set can't be deleted on its own; the Plan text changes it", asyn
   expect((await journal.getWorkout(workout.id))!.planNotation).toBe("bench press 80x5x2");
 });
 
-test("deleting an Entry removes it with its Performed Sets, from the Workout and its card", async () => {
+test("deleting an Entry removes it with its Performed Sets, from the Workout and the list of Workouts", async () => {
   const { journal, workout } = await journalWithWorkout();
   await journal.addEntry(workout.id, "squat");
   const typo = await journal.addEntry(workout.id, "bnech press");
@@ -202,7 +202,7 @@ test("deleting an Entry removes it with its Performed Sets, from the Workout and
   expect((await journal.listWorkouts())[0]!.exerciseNames).toEqual(["squat"]);
 });
 
-test("an Entry with Planned Sets can't be deleted; editing the Plan text removes it", async () => {
+test("an Entry with Planned Sets can't be deleted; editing the Plan notation removes it", async () => {
   const { journal, workout } = await journalWithWorkout();
   await journal.setPlan(workout.id, "bench press 80x5x2");
   const planned = (await journal.getWorkout(workout.id))!.entries[0]!;

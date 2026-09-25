@@ -167,9 +167,13 @@ input:focus-visible {
   gap: 8px;
 }
 
-.workout.confirming {
+.workout.confirming,
+.entry.confirming {
   background: var(--danger-soft);
   border-color: var(--danger);
+}
+
+.workout.confirming {
   padding: 12px 14px;
 }
 
@@ -283,11 +287,6 @@ a.workout-link {
 .entry.confirming,
 .set.confirming {
   gap: 10px;
-}
-
-.entry.confirming {
-  background: var(--danger-soft);
-  border-color: var(--danger);
 }
 
 .set-delete {

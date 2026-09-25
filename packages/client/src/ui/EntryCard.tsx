@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { formatPlanSets } from "@gymlog/shared";
 import type { Entry, Journal } from "../journal/journal.ts";
 import { parseReps, parseWeight, showNumber } from "./numbers.ts";
+import { ConfirmDelete } from "./ConfirmDelete.tsx";
 import { formatSetCount } from "./format.ts";
 import { SetRow } from "./SetRow.tsx";
 
@@ -39,20 +40,12 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
   if (confirmingDelete) {
     const sets = entry.performedSets.length;
     return (
-      <li className="entry confirming" role="alertdialog" aria-label="Подтверждение удаления">
-        <p className="confirm-text">
-          Удалить {entry.exercise.primaryName}
-          {sets > 0 ? ` и ${formatSetCount(sets)}` : ""}?
-        </p>
-        <div className="actions">
-          <button className="button danger" type="button" onClick={() => void deleteEntry()}>
-            Удалить
-          </button>
-          <button className="button" type="button" onClick={() => setConfirmingDelete(false)} autoFocus>
-            Отмена
-          </button>
-        </div>
-      </li>
+      <ConfirmDelete
+        className="entry"
+        question={`Удалить ${entry.exercise.primaryName}${sets > 0 ? ` и ${formatSetCount(sets)}` : ""}?`}
+        onDelete={deleteEntry}
+        onCancel={() => setConfirmingDelete(false)}
+      />
     );
   }
 
@@ -60,7 +53,7 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
     <li className="entry">
       <div className="entry-head">
         <h2 className="entry-name">{entry.exercise.primaryName}</h2>
-        {/* An Entry from the Plan is removed by editing the Plan text. */}
+        {/* An Entry from the Plan is removed by editing the Plan notation. */}
         {planned ? null : (
           <button className="button quiet muted-text" type="button" onClick={() => setConfirmingDelete(true)}>
             Удалить
