@@ -1,6 +1,6 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { formatPlanSets } from "@gymlog/shared";
-import type { Entry, Journal } from "../journal/journal.ts";
+import type { Entry, Journal, PlannedSet } from "../journal/journal.ts";
 import { parseReps, parseWeight, showNumber, showRpe, showWeight } from "./numbers.ts";
 import { ConfirmDelete } from "./ConfirmDelete.tsx";
 import { formatSetCount } from "./format.ts";
@@ -163,15 +163,11 @@ export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps
       {!finished && laterPlanned.length > 0 ? (
         <ol className="sets upcoming" aria-label="Впереди по плану">
           {laterPlanned.map((set, i) => (
-            <li key={set.id} className="upcoming-set">
-              <span className="set-number">{nextNumber + 1 + i}</span>
-              <span className="set-value">{showWeight(set.weight)}</span>
-              <span className="unit">кг ×</span>
-              <span className="set-value reps">{set.reps}</span>
+            <UnpairedPlannedSet key={set.id} set={set} number={nextNumber + 1 + i}>
               {set.targetRpe === null ? null : (
                 <span className="upcoming-target">цель RPE {showRpe(set.targetRpe)}</span>
               )}
-            </li>
+            </UnpairedPlannedSet>
           ))}
         </ol>
       ) : null}
@@ -179,16 +175,25 @@ export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps
       {notPerformed.length > 0 ? (
         <ol className="sets upcoming" aria-label="Не выполнены">
           {notPerformed.map(({ set, number }) => (
-            <li key={set.id} className="upcoming-set">
-              <span className="set-number">{number}</span>
-              <span className="set-value">{showWeight(set.weight)}</span>
-              <span className="unit">кг ×</span>
-              <span className="set-value reps">{set.reps}</span>
+            <UnpairedPlannedSet key={set.id} set={set} number={number}>
               <span className="not-performed">не выполнен</span>
-            </li>
+            </UnpairedPlannedSet>
           ))}
         </ol>
       ) : null}
+    </li>
+  );
+}
+
+/** A quiet row for a Planned Set with no Performed Set, with a note after its numbers. */
+function UnpairedPlannedSet({ set, number, children }: { set: PlannedSet; number: number; children: ReactNode }) {
+  return (
+    <li className="upcoming-set">
+      <span className="set-number">{number}</span>
+      <span className="set-value">{showWeight(set.weight)}</span>
+      <span className="unit">кг ×</span>
+      <span className="set-value reps">{set.reps}</span>
+      {children}
     </li>
   );
 }

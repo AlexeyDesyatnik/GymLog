@@ -88,23 +88,30 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
     await reload();
   }
 
-  async function switchFinished(finished: boolean) {
+  /** Runs finishing or undoing it once per tap, then shows the result. */
+  async function switchOnce(action: () => Promise<void>) {
     if (switchingNow.current) return;
     switchingNow.current = true;
     setSwitching(true);
     try {
-      if (finished) {
-        setPlanEditor(null);
-        clearPlanDraft(workoutId);
-        await journal.finishWorkout(workoutId);
-      } else {
-        await journal.undoFinishing(workoutId);
-      }
+      await action();
       await reload();
     } finally {
       switchingNow.current = false;
       setSwitching(false);
     }
+  }
+
+  function finish() {
+    return switchOnce(async () => {
+      setPlanEditor(null);
+      clearPlanDraft(workoutId);
+      await journal.finishWorkout(workoutId);
+    });
+  }
+
+  function undoFinishing() {
+    return switchOnce(() => journal.undoFinishing(workoutId));
   }
 
   if (workout === undefined) return null;
@@ -131,7 +138,7 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
           <p className="finished-text">
             <strong>Тренировка завершена.</strong> Чтобы изменить или удалить её, отмените завершение.
           </p>
-          <button className="button" type="button" onClick={() => void switchFinished(false)} disabled={switching}>
+          <button className="button" type="button" onClick={() => void undoFinishing()} disabled={switching}>
             Отменить завершение
           </button>
         </div>
@@ -187,10 +194,12 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
       {/* An empty Workout has nothing to declare recorded. */}
       {workout.finished || workout.entries.length === 0 ? null : (
         <div className="finish">
-          <button className="button" type="button" onClick={() => void switchFinished(true)} disabled={switching}>
+          <button className="button" type="button" onClick={() => void finish()} disabled={switching}>
             Завершить тренировку
           </button>
-          <p className="hint">Незаписанные подходы из плана будут отмечены как невыполненные. Завершение можно отменить.</p>
+          <p className="hint">
+            Незаписанные подходы из плана будут отмечены как невыполненные. Завершение можно отменить.
+          </p>
         </div>
       )}
     </main>

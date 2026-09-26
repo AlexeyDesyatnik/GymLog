@@ -135,7 +135,7 @@ test("undoing finishing clears Not performed; recording the rest and finishing a
   ]);
 });
 
-test("finishing a planned Workout that was never done makes all its Sets Not performed, and its Plan read-only", async () => {
+test("finishing a Workout with a Plan and no Performed Sets makes all its Sets Not performed, and the Plan read-only", async () => {
   const { journal, workout } = await journalWithWorkout();
   await journal.setPlan(workout.id, "squat 100x5x2\nbench press 80x5");
 

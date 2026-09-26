@@ -8,6 +8,7 @@ import {
   changeableWorkout,
   liveEntriesOf,
   liveSetsOf,
+  liveWorkout,
   openStore,
   workoutTables,
 } from "./store.ts";
@@ -179,16 +180,17 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     },
 
     async getWorkout(id) {
-      const workout = await db.workouts.get(id);
-      if (!workout || workout.deleted) return undefined;
+      const record = await db.workouts.get(id);
+      if (!record || record.deleted) return undefined;
+      const workout = toWorkout(record);
       const entries = await liveEntriesOf(db, [id]);
       const exercises = await db.exercises.bulkGet(entries.map((e) => e.exerciseId));
       const sets = await liveSetsOf(db, entries.map((e) => e.id));
       const views = entries.map((entry, i) =>
-        entryView(entry, exercises[i]!, sets.filter((s) => s.entryId === entry.id), workout.finished === true),
+        entryView(entry, exercises[i]!, sets.filter((s) => s.entryId === entry.id), workout.finished),
       );
       return {
-        ...toWorkout(workout),
+        ...workout,
         entries: views,
         planNotation: views
           .filter((entry) => entry.plannedSets.length > 0)
@@ -222,8 +224,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
 
     async undoFinishing(id) {
       await db.transaction("rw", db.workouts, async () => {
-        const workout = await db.workouts.get(id);
-        if (!workout || workout.deleted) throw new RangeError(`No Workout ${id}`);
+        const workout = await liveWorkout(db, id);
         if (!workout.finished) throw new RangeError(`Workout ${id} isn't Finished`);
         await db.workouts.update(id, { finished: false, updatedAt: now() });
       });
@@ -271,7 +272,8 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       return db.transaction("rw", workoutTables(db), async () => {
         await changeableEntry(db, entryId);
         const { plannedSets, performedSets } = splitSets(await liveSetsOf(db, [entryId]));
-        const next = pairByOrder(plannedSets, performedSets, false).find((pair) => pair.performed === null)?.planned;
+        const finished = false; // changeableEntry refuses an Entry of a Finished Workout
+        const next = pairByOrder(plannedSets, performedSets, finished).find((pair) => pair.performed === null)?.planned;
         if (!next) throw new RangeError(`No Planned Set left to perform in Entry ${entryId}`);
         return recordPerformedSet(entryId, { weight: next.weight, reps: next.reps });
       });

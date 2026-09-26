@@ -26,13 +26,19 @@ export function workoutTables(db: JournalDb) {
   return [db.workouts, db.entries, db.sets];
 }
 
+/** The Workout, if it is live. */
+export async function liveWorkout(db: JournalDb, id: string): Promise<WorkoutRecord> {
+  const workout = await db.workouts.get(id);
+  if (!workout || workout.deleted) throw new RangeError(`No Workout ${id}`);
+  return workout;
+}
+
 /**
  * The Workout, if it can be changed: it is live and not Finished. A Finished Workout is
  * read-only; undoing finishing is the only change it takes.
  */
 export async function changeableWorkout(db: JournalDb, id: string): Promise<WorkoutRecord> {
-  const workout = await db.workouts.get(id);
-  if (!workout || workout.deleted) throw new RangeError(`No Workout ${id}`);
+  const workout = await liveWorkout(db, id);
   if (workout.finished) throw new RangeError(`Workout ${id} is Finished; undo finishing to change it`);
   return workout;
 }
