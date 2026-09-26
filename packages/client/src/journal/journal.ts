@@ -173,13 +173,13 @@ export interface JournalOptions {
 }
 
 export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions = {}): Journal {
-  let storeState: StoreState = { status: "opening" };
+  let currentStoreState: StoreState = { status: "opening" };
   const storeStateListeners = new Set<() => void>();
   let closed = false;
   const db = openStore(name, (state) => {
     // Closing cancels the opening; that isn't a failure anyone needs to hear about.
     if (closed) return;
-    storeState = state;
+    currentStoreState = state;
     for (const listener of storeStateListeners) listener();
   });
 
@@ -216,7 +216,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
   }
 
   return {
-    storeState: () => storeState,
+    storeState: () => currentStoreState,
 
     onStoreStateChange(listener) {
       storeStateListeners.add(listener);

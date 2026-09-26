@@ -79,6 +79,7 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
   // Set at once, unlike state, so a second tap arriving before the next render is turned away.
   const switchingNow = useRef(false);
 
+  /** Shows the Workout as stored now, and returns it; undefined when it couldn't be read. */
   const reload = useCallback(async () => {
     try {
       const loaded = (await journal.getWorkout(workoutId)) ?? null;
@@ -86,7 +87,7 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
       return loaded;
     } catch (error) {
       setReadError(String(error));
-      return null;
+      return undefined;
     }
   }, [journal, workoutId]);
 
