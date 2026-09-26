@@ -10,27 +10,23 @@ import { workoutsHref } from "./useRoute.ts";
 
 function PlanButton({ workout, onOpen }: { workout: WorkoutWithEntries; onOpen: () => void }) {
   const hasPlan = workout.entries.some((e) => e.plannedSets.length > 0);
-  if (workout.planLocked && !hasPlan) return null;
   return (
     <div className="plan-button">
-      <button className="button" type="button" onClick={onOpen} disabled={workout.planLocked}>
+      <button className="button" type="button" onClick={onOpen}>
         {hasPlan ? "Изменить план" : "Написать план"}
       </button>
-      {workout.planLocked ? (
-        <p className="hint">План нельзя менять, когда уже записаны подходы или есть замены.</p>
-      ) : null}
     </div>
   );
 }
 
 /**
  * The Plan editor's starting point: an unfinished draft of the current Plan, or the Plan
- * itself; null when the Plan is locked or the Workout is Finished. A draft of a Plan that
+ * itself; null when the Workout is Finished. A draft of a Plan that
  * has changed since would hide the change, so it is dropped.
  */
 function draftFor(workoutId: string, workout: WorkoutWithEntries): PlanDraft | null {
   const stored = loadPlanDraft(workoutId);
-  if (workout.planLocked || workout.finished) {
+  if (workout.finished) {
     clearPlanDraft(workoutId);
     return null;
   }

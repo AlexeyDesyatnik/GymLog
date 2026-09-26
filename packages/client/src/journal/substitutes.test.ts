@@ -111,15 +111,13 @@ test.each<[string, (journal: Journal, entryId: string) => Promise<unknown>]>([
   expect(await journal.getWorkout(workout.id)).toEqual(before);
 });
 
-test("the Plan is unchanged by a Substitute and its Sets, and can't be edited while the Substitute stands", async () => {
+test("the Plan is unchanged by a Substitute and its Sets", async () => {
   const { journal, workout, bench } = await plannedWorkout();
   const substitute = await journal.substituteEntry(bench.id, "dumbbell press");
   const withSubstitute = (await journal.getWorkout(workout.id))!;
   await journal.addPerformedSet(substitute.id, { weight: 30, reps: 10 });
 
-  await expect(journal.setPlan(workout.id, "squat 100x5x3")).rejects.toThrow();
-
-  expect([withSubstitute.planNotation, withSubstitute.planLocked]).toEqual(["bench press 80x5x3\nsquat 100x5x3", true]);
+  expect(withSubstitute.planNotation).toBe("bench press 80x5x3\nsquat 100x5x3");
   expect((await journal.getWorkout(workout.id))!.planNotation).toBe("bench press 80x5x3\nsquat 100x5x3");
 });
 

@@ -112,8 +112,3 @@ function nextSetOf(pairs: SetPair[]): NextSet | null {
   const previous = pairs.at(-1)?.performed;
   return previous ? { weight: previous.weight, reps: previous.reps } : null;
 }
-
-/** Re-editing a Plan with recorded Sets or Substitutes needs reconciliation, which comes in a later ticket. */
-export function isPlanLocked(entries: EntryRecord[], sets: SetRecord[]): boolean {
-  return sets.some((s) => s.kind === "performed") || entries.some((e) => e.substitutesEntryId !== undefined);
-}

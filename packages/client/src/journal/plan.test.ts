@@ -184,16 +184,6 @@ test("setting the Plan again replaces it, and Entries added outside the Plan sta
   ]);
 });
 
-test("the Plan can't be set once the Workout has Performed Sets", async () => {
-  const { journal, workout } = await journalWithWorkout();
-  await journal.setPlan(workout.id, "squat 100x5x3");
-  const entry = (await journal.getWorkout(workout.id))!.entries[0]!;
-  await journal.addPerformedSet(entry.id, { weight: 100, reps: 5 });
-
-  await expect(journal.setPlan(workout.id, "squat 110x5x3")).rejects.toThrow();
-  expect((await journal.getWorkout(workout.id))!.planNotation).toBe("squat 100x5x3");
-});
-
 test("a bodyweight group may leave out the sets and may use a slash", async () => {
   const { journal, workout } = await journalWithWorkout();
 
@@ -234,31 +224,6 @@ test("a stray space before a separator still joins the group", async () => {
       ],
     ],
   ]);
-});
-
-test("the Workout says its Plan is locked once a Performed Set is recorded", async () => {
-  const { journal, workout } = await journalWithWorkout();
-  await journal.setPlan(workout.id, "squat 100x5x3");
-  const before = (await journal.getWorkout(workout.id))!.planLocked;
-  await journal.addPerformedSet((await journal.getWorkout(workout.id))!.entries[0]!.id, { weight: 100, reps: 5 });
-
-  expect([before, (await journal.getWorkout(workout.id))!.planLocked]).toEqual([false, true]);
-});
-
-test("the Plan can be set again once its Performed Sets are deleted, including an Entry added on the fly", async () => {
-  const { journal, workout } = await journalWithWorkout();
-  await journal.setPlan(workout.id, "squat 100x5x3");
-  const planned = (await journal.getWorkout(workout.id))!.entries[0]!;
-  const set = await journal.addPerformedSet(planned.id, { weight: 100, reps: 5 });
-  const extra = await journal.addEntry(workout.id, "plank");
-  await journal.addPerformedSet(extra.id, { weight: null, reps: 1 });
-
-  await journal.deletePerformedSet(set.id);
-  await journal.deleteEntry(extra.id);
-
-  expect((await journal.getWorkout(workout.id))!.planLocked).toBe(false);
-  await journal.setPlan(workout.id, "squat 110x5x3");
-  expect((await journal.getWorkout(workout.id))!.planNotation).toBe("squat 110x5x3");
 });
 
 test("a Target RPE belongs to the first Planned Set of its group, and reads back after @", async () => {

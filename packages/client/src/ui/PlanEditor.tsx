@@ -118,7 +118,7 @@ export function PlanEditor({ journal, workoutId, draft, focusOnOpen, onClose, on
         </p>
       ) : outcome === "failed" ? (
         <p className="plan-message" role="alert">
-          План не сохранился: в тренировке уже записаны подходы, и план теперь менять нельзя. Нажмите «Отмена».
+          План не сохранился: возможно, тренировку завершили или удалили на другом устройстве. Нажмите «Отмена».
         </p>
       ) : null}
 

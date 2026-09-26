@@ -2,7 +2,6 @@ import { checkRpe, checkSetValues, exerciseNameKey, formatPlanLine, parsePlan, t
 import type { EntryRecord, ExerciseRecord, LocalDate, SetRecord, SyncedRecord, WorkoutRecord } from "@gymlog/shared";
 import {
   entryView,
-  isPlanLocked,
   pairByOrder,
   splitSets,
   substitutionRefusal,
@@ -104,8 +103,6 @@ export interface WorkoutWithEntries extends Workout {
   entries: Entry[];
   /** The Plan in Plan notation, one line per planned Entry; empty when there is no Plan. */
   planNotation: string;
-  /** The Plan can't be changed once a Performed Set or a Substitute is recorded (re-editing comes in a later ticket). */
-  planLocked: boolean;
 }
 
 /** The single interface the UI uses for everything a user does with their Workouts. */
@@ -148,7 +145,9 @@ export interface Journal {
   setComment(setId: string, text: string): Promise<void>;
   /**
    * Replaces the Workout's Plan with the understood lines of this Plan notation, and
-   * reports how each non-empty line was understood. Refused once the Plan is locked.
+   * reports how each non-empty line was understood. Each line takes, in order, the next
+   * planned Entry of its Exercise, which keeps its Performed Sets; a planned Entry left
+   * without a line stays for its Performed Sets or is removed. Refused for a Finished Workout.
    */
   setPlan(workoutId: string, notation: string): Promise<PlanLine[]>;
   close(): void;
@@ -248,7 +247,6 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
           .filter((entry) => entry.plannedSets.length > 0)
           .map((entry) => formatPlanLine(entry.exercise.primaryName, entry.plannedSets))
           .join("\n"),
-        planLocked: isPlanLocked(entries, sets),
       };
     },
 
@@ -425,25 +423,31 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         await changeableWorkout(db, workoutId);
         const entries = await liveEntriesOf(db, [workoutId]);
         const sets = await liveSetsOf(db, entries.map((e) => e.id));
-        if (isPlanLocked(entries, sets)) {
-          throw new RangeError("The Plan can't be changed once the Workout has Performed Sets or Substitutes");
-        }
-
-        // The old Plan goes; Entries added outside the Plan stay, after the new one.
-        const plannedEntryIds = new Set(sets.map((s) => s.entryId));
+        const plannedEntryIds = new Set(sets.filter((s) => s.kind === "planned").map((s) => s.entryId));
+        const performedEntryIds = new Set(sets.filter((s) => s.kind === "performed").map((s) => s.entryId));
         const time = now();
-        for (const set of sets) await db.sets.update(set.id, { deleted: true, updatedAt: time });
-        for (const entry of entries.filter((e) => plannedEntryIds.has(e.id))) {
-          await db.entries.update(entry.id, { deleted: true, updatedAt: time });
-        }
-        const keptEntries = entries.filter((e) => !plannedEntryIds.has(e.id));
 
-        let position = 0;
+        // The old Planned Sets all go; each line then takes, in order, the next planned Entry of its Exercise.
+        for (const set of sets.filter((s) => s.kind === "planned")) {
+          await db.sets.update(set.id, { deleted: true, updatedAt: time });
+        }
+        const unmatched = entries.filter((e) => plannedEntryIds.has(e.id));
+        const order: EntryRecord[] = [];
         for (const line of lines) {
           if (!line.ok) continue;
           const exercise = await findOrCreateExercise(line.exerciseName);
-          const entry: EntryRecord = { ...newRecord(), workoutId, exerciseId: exercise.id, position: position++ };
-          await db.entries.add(entry);
+          const matchIndex = unmatched.findIndex((e) => e.exerciseId === exercise.id);
+          let entry: EntryRecord;
+          if (matchIndex >= 0) {
+            entry = unmatched.splice(matchIndex, 1)[0]!;
+          } else {
+            entry = { ...newRecord(), workoutId, exerciseId: exercise.id, position: order.length };
+            await db.entries.add(entry);
+          }
+          order.push(entry);
+          // A Substitute stays right after the Entry it replaces.
+          const substitute = entries.find((e) => e.substitutesEntryId === entry.id);
+          if (substitute) order.push(substitute);
           // A group's Target RPE is for its first Set.
           const plannedSets = line.groups.flatMap(({ weight, reps, maxReps, sets, targetRpe }) =>
             Array.from({ length: sets }, (_, i) => ({ weight, reps, maxReps, targetRpe: i === 0 ? targetRpe : null })),
@@ -462,8 +466,14 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
             })),
           );
         }
-        for (const entry of keptEntries) {
-          await db.entries.update(entry.id, { position: position++, updatedAt: time });
+
+        // An unmatched Entry is kept for its Performed Sets, otherwise removed.
+        const removed = unmatched.filter((e) => !performedEntryIds.has(e.id));
+        for (const entry of removed) await db.entries.update(entry.id, { deleted: true, updatedAt: time });
+        // Entries outside the Plan stay after it, in their order.
+        order.push(...entries.filter((e) => !order.includes(e) && !removed.includes(e)));
+        for (const [position, entry] of order.entries()) {
+          if (entry.position !== position) await db.entries.update(entry.id, { position, updatedAt: time });
         }
       });
       return lines;
