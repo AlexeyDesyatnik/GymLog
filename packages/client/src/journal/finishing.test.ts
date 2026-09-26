@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { localDate } from "@gymlog/shared";
-import type { WorkoutWithEntries } from "./journal.ts";
+import type { Entry, WorkoutWithEntries } from "./journal.ts";
 import { freshJournal } from "./testing.ts";
 
 async function journalWithWorkout() {
@@ -24,16 +24,16 @@ test("a new Workout isn't Finished; once Finished, it reads as Finished in the l
   ]);
 });
 
-/** A Finished Workout with a Plan, one confirmed Set and an Entry added on the fly. */
+/** A Finished Workout with a Plan, one confirmed Set, an unrecorded planned Entry and an Entry added on the fly. */
 async function finishedWorkout() {
   const { journal, workout } = await journalWithWorkout();
-  await journal.setPlan(workout.id, "bench press 80x5x2");
-  const planned = (await journal.getWorkout(workout.id))!.entries[0]!;
+  await journal.setPlan(workout.id, "bench press 80x5x2\nsquat 100x5");
+  const [planned, unrecorded] = (await journal.getWorkout(workout.id))!.entries as [Entry, Entry];
   const confirmed = await journal.confirmPlannedSet(planned.id);
   const onTheFly = await journal.addEntry(workout.id, "plank");
   await journal.addPerformedSet(onTheFly.id, { weight: null, reps: 60 });
   await journal.finishWorkout(workout.id);
-  return { journal, workout, planned, confirmed, onTheFly };
+  return { journal, workout, planned, unrecorded, confirmed, onTheFly };
 }
 
 type Finished = Awaited<ReturnType<typeof finishedWorkout>>;
@@ -44,6 +44,7 @@ test.each<[string, (f: Finished) => Promise<unknown>]>([
   ["finishing it again", (f) => f.journal.finishWorkout(f.workout.id)],
   ["setting the Plan", (f) => f.journal.setPlan(f.workout.id, "squat 100x5x3")],
   ["adding an Entry", (f) => f.journal.addEntry(f.workout.id, "squat")],
+  ["substituting an Entry", (f) => f.journal.substituteEntry(f.unrecorded.id, "leg press")],
   ["deleting an Entry", (f) => f.journal.deleteEntry(f.onTheFly.id)],
   ["adding a Performed Set", (f) => f.journal.addPerformedSet(f.planned.id, { weight: 80, reps: 5 })],
   ["confirming a Planned Set", (f) => f.journal.confirmPlannedSet(f.planned.id)],

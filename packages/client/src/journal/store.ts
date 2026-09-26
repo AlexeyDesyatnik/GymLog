@@ -18,6 +18,8 @@ export function openStore(name: string): JournalDb {
     entries: "id, workoutId",
     sets: "id, entryId",
   });
+  // Only Substitutes carry the reference, so only they are in its index.
+  db.version(3).stores({ entries: "id, workoutId, substitutesEntryId" });
   return db;
 }
 
@@ -48,6 +50,18 @@ export async function changeableEntry(db: JournalDb, id: string): Promise<EntryR
   const entry = await db.entries.get(id);
   if (!entry || entry.deleted) throw new RangeError(`No Entry ${id}`);
   await changeableWorkout(db, entry.workoutId);
+  return entry;
+}
+
+/** The live Substitute performed instead of this Entry, if there is one. */
+export async function liveSubstituteOf(db: JournalDb, entryId: string): Promise<EntryRecord | undefined> {
+  return db.entries.where("substitutesEntryId").equals(entryId).filter((e) => !e.deleted).first();
+}
+
+/** The Entry, if it can take new Sets: it can be changed and isn't replaced, whose Sets go to its Substitute. */
+export async function recordableEntry(db: JournalDb, id: string): Promise<EntryRecord> {
+  const entry = await changeableEntry(db, id);
+  if (await liveSubstituteOf(db, id)) throw new RangeError(`Entry ${id} is replaced; record Sets on its Substitute`);
   return entry;
 }
 

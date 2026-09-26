@@ -1,10 +1,12 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { formatPlanSets, formatReps } from "@gymlog/shared";
 import type { Entry, Journal, PlannedSet } from "../journal/journal.ts";
 import { parseReps, parseWeight, showNumber, showRpe, showWeight } from "./numbers.ts";
 import { ConfirmDelete } from "./ConfirmDelete.tsx";
 import { formatSetCount } from "./format.ts";
 import { SetRow } from "./SetRow.tsx";
+import { SubstitutePicker } from "./SubstitutePicker.tsx";
 
 interface EntryCardProps {
   journal: Journal;
@@ -50,7 +52,12 @@ export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps
   // Set at once, unlike state, so a second tap arriving before the next render is turned away.
   const savingNow = useRef(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  /** The Substitute picker is open, and whether it opened from a tap. */
+  const [substituting, setSubstituting] = useState<{ tapped: boolean } | null>(null);
   const hasPlan = entry.plannedSets.length > 0;
+  const replaced = entry.replacedBy !== null;
+  // Substitution is of a whole planned Entry, before any of it is performed.
+  const substitutable = !finished && hasPlan && !replaced && entry.performedSets.length === 0;
 
   function type(values: { weight: string; reps: string }) {
     setTyped({ number: nextNumber, ...values });
@@ -78,12 +85,22 @@ export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps
     await onChange();
   }
 
+  function openSubstitutePicker() {
+    // Opening synchronously within the tap lets the picker take focus and bring up the keyboard.
+    flushSync(() => setSubstituting({ tapped: true }));
+  }
+
   if (confirmingDelete) {
     const sets = entry.performedSets.length;
+    const what = `${entry.exercise.primaryName}${sets > 0 ? ` и ${formatSetCount(sets)}` : ""}`;
     return (
       <ConfirmDelete
         className="entry"
-        question={`Удалить ${entry.exercise.primaryName}${sets > 0 ? ` и ${formatSetCount(sets)}` : ""}?`}
+        question={
+          entry.replaces
+            ? `Удалить замену ${what}? ${entry.replaces.primaryName} снова можно будет выполнить.`
+            : `Удалить ${what}?`
+        }
         onDelete={deleteEntry}
         onCancel={() => setConfirmingDelete(false)}
       />
@@ -91,7 +108,7 @@ export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps
   }
 
   return (
-    <li className="entry">
+    <li className={`entry${replaced ? " replaced" : ""}`}>
       <div className="entry-head">
         <h2 className="entry-name">{entry.exercise.primaryName}</h2>
         {/* An Entry from the Plan is removed by editing the Plan notation. */}
@@ -100,11 +117,34 @@ export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps
             Удалить
           </button>
         )}
+        {substitutable && substituting === null ? (
+          <button className="button quiet" type="button" onClick={openSubstitutePicker}>
+            Заменить
+          </button>
+        ) : null}
       </div>
+      {entry.replaces ? <p className="substitute-note">вместо {entry.replaces.primaryName}</p> : null}
       {hasPlan ? (
         <p className="entry-plan">
           <span className="entry-plan-label">План</span> {formatPlanSets(entry.plannedSets)}
         </p>
+      ) : null}
+      {entry.replacedBy ? (
+        <p className="replaced-note">
+          Заменено на <strong>{entry.replacedBy.primaryName}</strong>
+        </p>
+      ) : null}
+      {substitutable && substituting !== null ? (
+        <SubstitutePicker
+          journal={journal}
+          entry={entry}
+          focusOnOpen={substituting.tapped}
+          onSubstituted={async () => {
+            setSubstituting(null);
+            await onChange();
+          }}
+          onCancel={() => setSubstituting(null)}
+        />
       ) : null}
 
       {performedPairs.length > 0 ? (
@@ -126,7 +166,8 @@ export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps
         </ol>
       ) : null}
 
-      {finished ? null : (
+      {/* A replaced Entry's Sets go to its Substitute. */}
+      {finished || replaced || substituting !== null ? null : (
         <form className="add-set" onSubmit={addSet}>
           <div className="add-set-row">
             <span className="set-number" aria-hidden="true">
@@ -166,7 +207,7 @@ export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps
         </form>
       )}
 
-      {!finished && laterPlanned.length > 0 ? (
+      {!finished && !replaced && substituting === null && laterPlanned.length > 0 ? (
         <ol className="sets upcoming" aria-label="Впереди по плану">
           {laterPlanned.map((set, i) => (
             <UnpairedPlannedSet key={set.id} set={set} number={nextNumber + 1 + i}>

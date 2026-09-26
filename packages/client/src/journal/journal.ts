@@ -8,9 +8,12 @@ import {
   changeableWorkout,
   liveEntriesOf,
   liveSetsOf,
+  liveSubstituteOf,
   liveWorkout,
   openStore,
+  recordableEntry,
   workoutTables,
+  type JournalDb,
 } from "./store.ts";
 
 export interface Workout {
@@ -58,8 +61,10 @@ export interface PlannedSet {
 export interface SetPair {
   planned: PlannedSet | null;
   performed: PerformedSet | null;
-  /** A Planned Set with no Performed Set, in a Finished Workout. Derived, never stored. */
+  /** A Planned Set with no Performed Set, in a Finished Workout, of an Entry not replaced. Derived, never stored. */
   notPerformed: boolean;
+  /** A Planned Set of an Entry replaced by a Substitute. Derived, never stored. */
+  replaced: boolean;
   /** A Performed Set at its Planned Set's weight, with its Reps or Reps within its Rep range. */
   asPlanned: boolean;
 }
@@ -73,6 +78,10 @@ export interface Entry {
   pairs: SetPair[];
   /** The numbers the next Performed Set starts from (number prefill), or null when there are none. */
   nextSet: NextSet | null;
+  /** The Exercise of the Substitute performed instead of this Entry; its Planned Sets count as replaced. */
+  replacedBy: Exercise | null;
+  /** For a Substitute, the Exercise of the Entry it replaces. */
+  replaces: Exercise | null;
 }
 
 /** Number prefill for the next Performed Set; reps are null when the user must give them (a Rep range). */
@@ -85,7 +94,7 @@ export interface WorkoutWithEntries extends Workout {
   entries: Entry[];
   /** The Plan in Plan notation, one line per planned Entry; empty when there is no Plan. */
   planNotation: string;
-  /** The Plan can't be changed once a Performed Set is recorded (re-editing comes in a later ticket). */
+  /** The Plan can't be changed once a Performed Set or a Substitute is recorded (re-editing comes in a later ticket). */
   planLocked: boolean;
 }
 
@@ -103,7 +112,17 @@ export interface Journal {
   undoFinishing(id: string): Promise<void>;
   /** Adds an Entry for the Exercise with this name, creating the Exercise if no name matches. */
   addEntry(workoutId: string, exerciseName: string): Promise<Entry>;
-  /** Deletes an Entry added on the fly; its Sets go with it, hidden by the Entry's tombstone. */
+  /**
+   * Replaces a whole planned Entry that has no Performed Sets with a Substitute of another Exercise,
+   * placed right after it. The Substitute starts with no Sets, and the Plan is unchanged.
+   */
+  substituteEntry(entryId: string, exerciseName: string): Promise<Entry>;
+  /**
+   * Exercises to replace this Entry with, matching the typed text by any name: first those used
+   * before as a Substitute for its Exercise, most recently used first; never its own Exercise.
+   */
+  suggestSubstitutes(entryId: string, text: string): Promise<Exercise[]>;
+  /** Deletes an Entry added on the fly or a Substitute; its Sets go with it, hidden by the Entry's tombstone. */
   deleteEntry(entryId: string): Promise<void>;
   addPerformedSet(entryId: string, values: SetValues): Promise<PerformedSet>;
   /**
@@ -183,11 +202,15 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       const records = (await db.workouts.orderBy("[date+createdAt]").reverse().toArray()).filter((r) => !r.deleted);
       const entries = await liveEntriesOf(db, records.map((r) => r.id));
       const exercises = await db.exercises.bulkGet(entries.map((e) => e.exerciseId));
+      // A replaced Entry wasn't performed; its Substitute names the Exercise that was.
+      const replacedIds = new Set(entries.flatMap((e) => e.substitutesEntryId ?? []));
       return records.map((record) => {
         // Keyed by Exercise, so each is named once, where it first appears.
         const primaryNameByExerciseId = new Map<string, string>();
         entries.forEach((entry, i) => {
-          if (entry.workoutId === record.id) primaryNameByExerciseId.set(entry.exerciseId, exercises[i]!.primaryName);
+          if (entry.workoutId === record.id && !replacedIds.has(entry.id)) {
+            primaryNameByExerciseId.set(entry.exerciseId, exercises[i]!.primaryName);
+          }
         });
         return { ...toWorkout(record), exerciseNames: [...primaryNameByExerciseId.values()] };
       });
@@ -200,8 +223,13 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       const entries = await liveEntriesOf(db, [id]);
       const exercises = await db.exercises.bulkGet(entries.map((e) => e.exerciseId));
       const sets = await liveSetsOf(db, entries.map((e) => e.id));
+      const exerciseByEntryId = new Map(entries.map((entry, i) => [entry.id, toExercise(exercises[i]!)]));
       const views = entries.map((entry, i) =>
-        entryView(entry, exercises[i]!, sets.filter((s) => s.entryId === entry.id), workout.finished),
+        entryView(entry, exercises[i]!, sets.filter((s) => s.entryId === entry.id), workout.finished, {
+          replacedBy: substituteOf(entries, entry.id, exerciseByEntryId),
+          // A Substitute whose replaced Entry is gone is an ordinary Entry.
+          replaces: (entry.substitutesEntryId && exerciseByEntryId.get(entry.substitutesEntryId)) || null,
+        }),
       );
       return {
         ...workout,
@@ -210,7 +238,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
           .filter((entry) => entry.plannedSets.length > 0)
           .map((entry) => formatPlanLine(entry.exercise.primaryName, entry.plannedSets))
           .join("\n"),
-        planLocked: isPlanLocked(sets),
+        planLocked: isPlanLocked(entries, sets),
       };
     },
 
@@ -258,8 +286,58 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
           performedSets: [],
           pairs: [],
           nextSet: null,
+          replacedBy: null,
+          replaces: null,
         };
       });
+    },
+
+    async substituteEntry(entryId, exerciseName) {
+      return db.transaction("rw", [db.workouts, db.exercises, db.entries, db.sets], async () => {
+        const replaced = await changeableEntry(db, entryId);
+        const sets = await liveSetsOf(db, [entryId]);
+        if (!sets.some((s) => s.kind === "planned")) throw new RangeError("Only an Entry from the Plan can be replaced");
+        if (sets.some((s) => s.kind === "performed")) {
+          throw new RangeError("An Entry with Performed Sets can't be replaced: substitution is of the whole Entry");
+        }
+        if (await liveSubstituteOf(db, entryId)) throw new RangeError(`Entry ${entryId} is already replaced`);
+        const entries = await liveEntriesOf(db, [replaced.workoutId]);
+        const exercise = await findOrCreateExercise(exerciseName);
+        if (exercise.id === replaced.exerciseId) throw new RangeError("A Substitute is of another Exercise");
+        const time = now();
+        // Later Entries move down to make room right after the replaced one.
+        for (const later of entries.filter((e) => e.position > replaced.position)) {
+          await db.entries.update(later.id, { position: later.position + 1, updatedAt: time });
+        }
+        const entry: EntryRecord = {
+          ...newRecord(),
+          workoutId: replaced.workoutId,
+          exerciseId: exercise.id,
+          position: replaced.position + 1,
+          substitutesEntryId: replaced.id,
+        };
+        await db.entries.add(entry);
+        const replacedExercise = (await db.exercises.get(replaced.exerciseId))!;
+        return entryView(entry, exercise, [], false, { replacedBy: null, replaces: toExercise(replacedExercise) });
+      });
+    },
+
+    async suggestSubstitutes(entryId, text) {
+      const entry = await db.entries.get(entryId);
+      if (!entry || entry.deleted) throw new RangeError(`No Entry ${entryId}`);
+      const key = exerciseNameKey(text);
+      const matching = (await db.exercises.toArray()).filter(
+        (e) => !e.deleted && e.id !== entry.exerciseId && e.nameKeys.some((name) => name.includes(key)),
+      );
+      const rank = new Map((await previousSubstitutesFor(db, entry.exerciseId)).map((id, i) => [id, i]));
+      // The rest go by name until suggestions are ranked by use.
+      return matching
+        .sort(
+          (a, b) =>
+            (rank.get(a.id) ?? rank.size) - (rank.get(b.id) ?? rank.size) ||
+            a.primaryName.localeCompare(b.primaryName, "ru"),
+        )
+        .map(toExercise);
     },
 
     async deleteEntry(entryId) {
@@ -277,17 +355,17 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     async addPerformedSet(entryId, values) {
       checkSetValues(values);
       return db.transaction("rw", workoutTables(db), async () => {
-        await changeableEntry(db, entryId);
+        await recordableEntry(db, entryId);
         return recordPerformedSet(entryId, values);
       });
     },
 
     async confirmPlannedSet(entryId) {
       return db.transaction("rw", workoutTables(db), async () => {
-        await changeableEntry(db, entryId);
+        await recordableEntry(db, entryId);
         const { plannedSets, performedSets } = splitSets(await liveSetsOf(db, [entryId]));
-        const finished = false; // changeableEntry refuses an Entry of a Finished Workout
-        const next = pairByOrder(plannedSets, performedSets, finished).find((pair) => pair.performed === null)?.planned;
+        // recordableEntry refuses an Entry of a Finished Workout and a replaced Entry.
+        const next = pairByOrder(plannedSets, performedSets, false, false).find((pair) => pair.performed === null)?.planned;
         if (!next) throw new RangeError(`No Planned Set left to perform in Entry ${entryId}`);
         if (next.maxReps !== null) {
           throw new RangeError("A Planned Set with a Rep range can't be Confirmed: the Reps done must be given");
@@ -338,8 +416,8 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         await changeableWorkout(db, workoutId);
         const entries = await liveEntriesOf(db, [workoutId]);
         const sets = await liveSetsOf(db, entries.map((e) => e.id));
-        if (isPlanLocked(sets)) {
-          throw new RangeError("The Plan can't be changed once the Workout has Performed Sets");
+        if (isPlanLocked(entries, sets)) {
+          throw new RangeError("The Plan can't be changed once the Workout has Performed Sets or Substitutes");
         }
 
         // The old Plan goes; Entries added outside the Plan stay, after the new one.
@@ -386,6 +464,28 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       db.close();
     },
   };
+}
+
+/** The Exercises used as a Substitute for this Exercise in live Workouts, most recently used first. */
+async function previousSubstitutesFor(db: JournalDb, exerciseId: string): Promise<string[]> {
+  // Only Substitutes are in this index.
+  const substitutes = (await db.entries.orderBy("substitutesEntryId").toArray()).filter((e) => !e.deleted);
+  const replaced = await db.entries.bulkGet(substitutes.map((e) => e.substitutesEntryId!));
+  const workouts = await db.workouts.bulkGet(substitutes.map((e) => e.workoutId));
+  const uses = substitutes.flatMap((substitute, i) => {
+    const workout = workouts[i];
+    const replacedEntry = replaced[i];
+    if (!workout || workout.deleted || !replacedEntry || replacedEntry.deleted) return [];
+    return replacedEntry.exerciseId === exerciseId ? [{ exerciseId: substitute.exerciseId, workout }] : [];
+  });
+  uses.sort((a, b) => b.workout.date.localeCompare(a.workout.date) || b.workout.createdAt - a.workout.createdAt);
+  return [...new Set(uses.map((use) => use.exerciseId))];
+}
+
+/** The Exercise of the live Substitute performed instead of this Entry, if there is one. */
+function substituteOf(entries: EntryRecord[], entryId: string, exerciseByEntryId: Map<string, Exercise>): Exercise | null {
+  const substitute = entries.find((e) => e.substitutesEntryId === entryId);
+  return substitute ? exerciseByEntryId.get(substitute.id)! : null;
 }
 
 function toWorkout(record: WorkoutRecord): Workout {

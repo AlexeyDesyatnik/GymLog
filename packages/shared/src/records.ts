@@ -32,6 +32,8 @@ export interface EntryRecord extends SyncedRecord {
   exerciseId: string;
   /** Order within the Workout. */
   position: number;
+  /** For a Substitute, the Entry it was performed instead of; missing for any other Entry. */
+  substitutesEntryId?: string;
 }
 
 export interface SetRecord extends SyncedRecord {

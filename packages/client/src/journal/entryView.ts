@@ -1,20 +1,36 @@
 import type { EntryRecord, ExerciseRecord, SetRecord } from "@gymlog/shared";
 import type { Entry, Exercise, NextSet, PerformedSet, PlannedSet, SetPair } from "./journal.ts";
 
+/** How an Entry takes part in a substitution: the Substitute performed instead of it, or the Entry it replaces. */
+export interface Substitution {
+  replacedBy: Exercise | null;
+  replaces: Exercise | null;
+}
+
 /**
- * An Entry as the UI reads it, with everything derived from its live Sets (given in order)
- * and whether its Workout is Finished.
+ * An Entry as the UI reads it, with everything derived from its live Sets (given in order),
+ * whether its Workout is Finished, and its substitution.
  */
-export function entryView(entry: EntryRecord, exercise: ExerciseRecord, sets: SetRecord[], finished: boolean): Entry {
+export function entryView(
+  entry: EntryRecord,
+  exercise: ExerciseRecord,
+  sets: SetRecord[],
+  finished: boolean,
+  { replacedBy, replaces }: Substitution,
+): Entry {
   const { plannedSets, performedSets } = splitSets(sets);
-  const pairs = pairByOrder(plannedSets, performedSets, finished);
+  const replaced = replacedBy !== null;
+  const pairs = pairByOrder(plannedSets, performedSets, finished, replaced);
   return {
     id: entry.id,
     exercise: toExercise(exercise),
     plannedSets,
     performedSets,
     pairs,
-    nextSet: nextSetOf(pairs),
+    // A replaced Entry takes no Sets: they go to its Substitute.
+    nextSet: replaced ? null : nextSetOf(pairs),
+    replacedBy,
+    replaces,
   };
 }
 
@@ -44,12 +60,21 @@ function toPlannedSet(record: SetRecord): PlannedSet {
   };
 }
 
-/** Pairs Planned and Performed Sets by order; in a Finished Workout, a Planned Set left unpaired is Not performed. */
-export function pairByOrder(planned: PlannedSet[], performed: PerformedSet[], finished: boolean): SetPair[] {
+/**
+ * Pairs Planned and Performed Sets by order. The Planned Sets of a replaced Entry are replaced;
+ * otherwise, in a Finished Workout, a Planned Set left unpaired is Not performed.
+ */
+export function pairByOrder(
+  planned: PlannedSet[],
+  performed: PerformedSet[],
+  finished: boolean,
+  replaced: boolean,
+): SetPair[] {
   return Array.from({ length: Math.max(planned.length, performed.length) }, (_, i) => ({
     planned: planned[i] ?? null,
     performed: performed[i] ?? null,
-    notPerformed: finished && planned[i] !== undefined && performed[i] === undefined,
+    notPerformed: finished && !replaced && planned[i] !== undefined && performed[i] === undefined,
+    replaced: replaced && planned[i] !== undefined,
     asPlanned: isAsPlanned(planned[i], performed[i]),
   }));
 }
@@ -77,7 +102,7 @@ function nextSetOf(pairs: SetPair[]): NextSet | null {
   return previous ? { weight: previous.weight, reps: previous.reps } : null;
 }
 
-/** Re-editing a Plan with recorded Sets needs reconciliation, which comes in a later ticket. */
-export function isPlanLocked(sets: SetRecord[]): boolean {
-  return sets.some((s) => s.kind === "performed");
+/** Re-editing a Plan with recorded Sets or Substitutes needs reconciliation, which comes in a later ticket. */
+export function isPlanLocked(entries: EntryRecord[], sets: SetRecord[]): boolean {
+  return sets.some((s) => s.kind === "performed") || entries.some((e) => e.substitutesEntryId !== undefined);
 }

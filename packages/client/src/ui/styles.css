@@ -727,3 +727,65 @@ a.workout-link:focus-visible {
   font-size: 13px;
   font-style: italic;
 }
+
+/* Substitutes */
+
+/* A replaced Entry is settled, not pending: faded, its Plan kept for comparison, and no Sets to record. */
+.entry.replaced {
+  background: transparent;
+  border-style: dashed;
+}
+
+.entry.replaced .entry-name,
+.entry.replaced .entry-plan {
+  color: var(--muted);
+}
+
+.replaced-note,
+.substitute-note {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.replaced-note strong {
+  color: var(--ink);
+}
+
+.substitute-note {
+  margin-top: -6px;
+}
+
+.substitute-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.suggestions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.suggestion {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.suggestion:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
