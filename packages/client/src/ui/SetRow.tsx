@@ -13,13 +13,15 @@ interface SetRowProps {
   planned: PlannedSet | null;
   /** In an Entry with a Plan, a Performed Set beyond the planned count. */
   beyondPlan: boolean;
+  /** Only the Entry's last Performed Set can be deleted. */
+  last: boolean;
   number: number;
   onChange: () => Promise<void>;
 }
 
 type Field = "weight" | "reps";
 
-export function SetRow({ journal, set, planned, beyondPlan, number, onChange }: SetRowProps) {
+export function SetRow({ journal, set, planned, beyondPlan, last, number, onChange }: SetRowProps) {
   const [weight, setWeight] = useState(showNumber(set.weight));
   const [reps, setReps] = useState(String(set.reps));
   /** The field being edited; the values show as text otherwise. */
@@ -190,7 +192,7 @@ export function SetRow({ journal, set, planned, beyondPlan, number, onChange }: 
       ) : null}
       {beyondPlan ? <p className="set-plan">сверх плана</p> : null}
 
-      {editing === null ? null : (
+      {editing === null || !last ? null : (
         <div className="set-delete">
           <button
             className="button quiet danger-text"

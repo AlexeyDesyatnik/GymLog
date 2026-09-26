@@ -109,17 +109,17 @@ test("an Entry without a Plan has only unpaired Performed Sets", async () => {
   await expect(journal.confirmPlannedSet(entry.id)).rejects.toThrow();
 });
 
-test("deleting a confirmed Set leaves a Planned Set unpaired again, since pairing is by order", async () => {
+test("deleting the last confirmed Set leaves its Planned Set unpaired again", async () => {
   const { journal, entry, read } = await plannedEntry("bench press 80x5 70x8");
-  const first = await journal.confirmPlannedSet(entry.id);
   await journal.confirmPlannedSet(entry.id);
+  const last = await journal.confirmPlannedSet(entry.id);
 
-  await journal.deletePerformedSet(first.id);
+  await journal.deletePerformedSet(last.id);
 
   expect(pairsOf(await read())).toEqual([
     [
       [80, 5],
-      [70, 8],
+      [80, 5],
     ],
     [[70, 8], null],
   ]);

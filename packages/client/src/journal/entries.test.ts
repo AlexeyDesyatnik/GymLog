@@ -170,8 +170,8 @@ test("a Comment can be set on a Performed Set, and blank text clears it", async 
 test("deleting a Performed Set removes it, and the others keep their order", async () => {
   const { journal, entry, performedSets } = await journalWithEntry();
   await journal.addPerformedSet(entry.id, { weight: 80, reps: 5 });
-  const accidental = await journal.addPerformedSet(entry.id, { weight: 80, reps: 5 });
   await journal.addPerformedSet(entry.id, { weight: 70, reps: 8 });
+  const accidental = await journal.addPerformedSet(entry.id, { weight: 70, reps: 8 });
 
   await journal.deletePerformedSet(accidental.id);
 
@@ -179,6 +179,28 @@ test("deleting a Performed Set removes it, and the others keep their order", asy
     [80, 5],
     [70, 8],
   ]);
+});
+
+test("only the last Performed Set of an Entry can be deleted, so the Sets before it never re-pair", async () => {
+  const { journal, entry, performedSets } = await journalWithEntry();
+  await journal.addPerformedSet(entry.id, { weight: 80, reps: 5 });
+  const middle = await journal.addPerformedSet(entry.id, { weight: 80, reps: 5 });
+  await journal.addPerformedSet(entry.id, { weight: 70, reps: 8 });
+
+  await expect(journal.deletePerformedSet(middle.id)).rejects.toThrow();
+  expect(await performedSets()).toHaveLength(3);
+});
+
+test("once the last Performed Set is deleted, the one before it is last and can be deleted too", async () => {
+  const { journal, entry, performedSets } = await journalWithEntry();
+  await journal.addPerformedSet(entry.id, { weight: 80, reps: 5 });
+  const second = await journal.addPerformedSet(entry.id, { weight: 80, reps: 5 });
+  const third = await journal.addPerformedSet(entry.id, { weight: 70, reps: 8 });
+
+  await journal.deletePerformedSet(third.id);
+  await journal.deletePerformedSet(second.id);
+
+  expect((await performedSets()).map((s) => [s.weight, s.reps])).toEqual([[80, 5]]);
 });
 
 test("a Planned Set can't be deleted on its own; editing the Plan notation changes it", async () => {
