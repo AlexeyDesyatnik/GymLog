@@ -18,8 +18,8 @@ export function StoreProblem({ problem }: { problem: StoreProblemState }) {
               <strong>Закройте другие вкладки и окна GymLog на этом устройстве и обновите страницу.</strong>
             </p>
             <p className="hint">
-              GymLog обновился, а его старая копия, открытая где-то ещё, не даёт подготовить данные. Как только
-              она закроется, всё продолжится само.
+              Данные держит другая открытая копия GymLog, например страница, открытая из Telegram. Как только она
+              закроется, всё продолжится само.
             </p>
           </>
         ) : problem.status === "upgradedElsewhere" ? (
