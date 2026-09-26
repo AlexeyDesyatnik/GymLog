@@ -89,20 +89,20 @@ test("the first Set of a Rep range group starts from the planned weight and no r
   expect(await nextSetValues(read)).toEqual([15, null]);
 });
 
-test("a later Set of the same Rep range group starts from the reps of the Set before it", async () => {
+test("a later Set of a Rep range group starts with no reps too: the Reps done are given every time", async () => {
   const { journal, entry, read } = await plannedEntry("bicep curl 15x10-12x3");
 
   await journal.addPerformedSet(entry.id, { weight: 15, reps: 11 });
 
-  expect(await nextSetValues(read)).toEqual([15, 11]);
+  expect(await nextSetValues(read)).toEqual([15, null]);
 });
 
-test("a changed weight carries into the rest of a Rep range group, with the reps of the Set before", async () => {
+test("a changed weight carries into the rest of a Rep range group, still with no reps", async () => {
   const { journal, entry, read } = await plannedEntry("bicep curl 15x10-12x3");
 
   await journal.addPerformedSet(entry.id, { weight: 17.5, reps: 10 });
 
-  expect(await nextSetValues(read)).toEqual([17.5, 10]);
+  expect(await nextSetValues(read)).toEqual([17.5, null]);
 });
 
 test("the first Set of the next Rep range group starts from no reps again", async () => {

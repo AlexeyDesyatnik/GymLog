@@ -63,17 +63,14 @@ function nextSetOf(pairs: SetPair[]): NextSet | null {
   const nextIndex = pairs.findIndex((pair) => pair.performed === null);
   const next = pairs[nextIndex]?.planned;
   if (next) {
+    // A weight changed from the Plan carries on to Planned Sets of the same planned weight;
+    // the reps stay the Plan's, and a Rep range leaves them to be given every time.
     const previous = pairs[nextIndex - 1];
-    const done =
-      previous?.planned && previous.performed ? { planned: previous.planned, performed: previous.performed } : null;
-    // A weight changed from the Plan carries on to Planned Sets of the same planned weight.
-    const sameWeight = done !== null && done.planned.weight === next.weight;
-    const weight = sameWeight ? done.performed.weight : next.weight;
-    // A single planned count is the reps to start from, whatever was done before.
-    if (next.maxReps === null) return { weight, reps: next.reps };
-    // A Rep range's reps are the user's to give; later Sets of its group repeat the Set before.
-    const sameRange = sameWeight && done.planned.reps === next.reps && done.planned.maxReps === next.maxReps;
-    return { weight, reps: sameRange ? done.performed.reps : null };
+    const weight =
+      previous?.planned && previous.performed && previous.planned.weight === next.weight
+        ? previous.performed.weight
+        : next.weight;
+    return { weight, reps: next.maxReps === null ? next.reps : null };
   }
   // Past the Plan, or with none, repeating the previous Set is one tap.
   const previous = pairs.at(-1)?.performed;
