@@ -7,31 +7,40 @@ const SUGGESTION_COUNT = 5;
 interface SubstitutePickerProps {
   journal: Journal;
   entry: Entry;
-  /** Opened by a tap, so the name field takes focus and brings up the keyboard. */
-  focusOnOpen: boolean;
   onSubstituted: () => Promise<void>;
   onCancel: () => void;
 }
 
-/** Chooses the Exercise of a Substitute: typed, or tapped among the suggestions, where last time's Substitutes come first. */
-export function SubstitutePicker({ journal, entry, focusOnOpen, onSubstituted, onCancel }: SubstitutePickerProps) {
+/**
+ * Chooses the Exercise of a Substitute: typed, or tapped among the suggestions, where last time's
+ * Substitutes come first. It opens from a tap, so its name field takes focus and brings up the keyboard.
+ */
+export function SubstitutePicker({ journal, entry, onSubstituted, onCancel }: SubstitutePickerProps) {
   const [name, setName] = useState("");
   const [suggestions, setSuggestions] = useState<Exercise[]>([]);
+  /** The name given was refused, e.g. the Entry's own Exercise under another name. */
+  const [refused, setRefused] = useState(false);
   const [saving, setSaving] = useState(false);
   // Set at once, unlike state, so a second tap arriving before the next render is turned away.
   const savingNow = useRef(false);
   const input = useRef<HTMLInputElement>(null);
 
   useLayoutEffect(() => {
-    if (focusOnOpen) input.current?.focus();
-  }, [focusOnOpen]);
+    input.current?.focus();
+  }, []);
 
   useEffect(() => {
     // Only the answer for the latest text is shown, whatever order the answers come in.
     let current = true;
-    void journal.suggestSubstitutes(entry.id, name).then((found) => {
-      if (current) setSuggestions(found.slice(0, SUGGESTION_COUNT));
-    });
+    journal.suggestSubstitutes(entry.id, name).then(
+      (found) => {
+        if (current) setSuggestions(found.slice(0, SUGGESTION_COUNT));
+      },
+      // The Entry is gone, e.g. deleted on another screen: there is nothing to suggest for.
+      () => {
+        if (current) setSuggestions([]);
+      },
+    );
     return () => {
       current = false;
     };
@@ -44,6 +53,8 @@ export function SubstitutePicker({ journal, entry, focusOnOpen, onSubstituted, o
     try {
       await journal.substituteEntry(entry.id, exerciseName);
       await onSubstituted();
+    } catch {
+      setRefused(true);
     } finally {
       savingNow.current = false;
       setSaving(false);
@@ -65,15 +76,20 @@ export function SubstitutePicker({ journal, entry, focusOnOpen, onSubstituted, o
           className="text-input"
           type="text"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            setName(e.target.value);
+            setRefused(false);
+          }}
           placeholder="упражнение"
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="none"
           spellCheck={false}
           enterKeyHint="done"
+          aria-invalid={refused}
         />
       </label>
+      {refused ? <p className="plan-message">Замена должна быть другим упражнением.</p> : null}
       {suggestions.length > 0 ? (
         <ul className="suggestions" aria-label="Подсказки">
           {suggestions.map((exercise) => (

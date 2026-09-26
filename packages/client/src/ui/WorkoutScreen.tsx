@@ -16,7 +16,9 @@ function PlanButton({ workout, onOpen }: { workout: WorkoutWithEntries; onOpen: 
       <button className="button" type="button" onClick={onOpen} disabled={workout.planLocked}>
         {hasPlan ? "Изменить план" : "Написать план"}
       </button>
-      {workout.planLocked ? <p className="hint">План нельзя менять, когда уже записаны подходы или есть замены.</p> : null}
+      {workout.planLocked ? (
+        <p className="hint">План нельзя менять, когда уже записаны подходы или есть замены.</p>
+      ) : null}
     </div>
   );
 }

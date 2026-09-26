@@ -1,6 +1,14 @@
 import { checkRpe, checkSetValues, exerciseNameKey, formatPlanLine, parsePlan, type PlanLine } from "@gymlog/shared";
 import type { EntryRecord, ExerciseRecord, LocalDate, SetRecord, SyncedRecord, WorkoutRecord } from "@gymlog/shared";
-import { entryView, isPlanLocked, pairByOrder, splitSets, toExercise, toPerformedSet } from "./entryView.ts";
+import {
+  entryView,
+  isPlanLocked,
+  pairByOrder,
+  splitSets,
+  substitutionRefusal,
+  toExercise,
+  toPerformedSet,
+} from "./entryView.ts";
 import { newId } from "./ids.ts";
 import {
   changeableEntry,
@@ -11,9 +19,9 @@ import {
   liveSubstituteOf,
   liveWorkout,
   openStore,
+  previousSubstitutesFor,
   recordableEntry,
   workoutTables,
-  type JournalDb,
 } from "./store.ts";
 
 export interface Workout {
@@ -82,6 +90,8 @@ export interface Entry {
   replacedBy: Exercise | null;
   /** For a Substitute, the Exercise of the Entry it replaces. */
   replaces: Exercise | null;
+  /** It can be replaced by a Substitute: a planned Entry, not replaced, with no Performed Sets, in a Workout not Finished. */
+  substitutable: boolean;
 }
 
 /** Number prefill for the next Performed Set; reps are null when the user must give them (a Rep range). */
@@ -288,6 +298,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
           nextSet: null,
           replacedBy: null,
           replaces: null,
+          substitutable: false,
         };
       });
     },
@@ -295,12 +306,8 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     async substituteEntry(entryId, exerciseName) {
       return db.transaction("rw", [db.workouts, db.exercises, db.entries, db.sets], async () => {
         const replaced = await changeableEntry(db, entryId);
-        const sets = await liveSetsOf(db, [entryId]);
-        if (!sets.some((s) => s.kind === "planned")) throw new RangeError("Only an Entry from the Plan can be replaced");
-        if (sets.some((s) => s.kind === "performed")) {
-          throw new RangeError("An Entry with Performed Sets can't be replaced: substitution is of the whole Entry");
-        }
-        if (await liveSubstituteOf(db, entryId)) throw new RangeError(`Entry ${entryId} is already replaced`);
+        const refusal = substitutionRefusal(await liveSetsOf(db, [entryId]), !!(await liveSubstituteOf(db, entryId)));
+        if (refusal) throw new RangeError(refusal);
         const entries = await liveEntriesOf(db, [replaced.workoutId]);
         const exercise = await findOrCreateExercise(exerciseName);
         if (exercise.id === replaced.exerciseId) throw new RangeError("A Substitute is of another Exercise");
@@ -318,7 +325,8 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         };
         await db.entries.add(entry);
         const replacedExercise = (await db.exercises.get(replaced.exerciseId))!;
-        return entryView(entry, exercise, [], false, { replacedBy: null, replaces: toExercise(replacedExercise) });
+        const finished = false; // changeableEntry refuses an Entry of a Finished Workout
+        return entryView(entry, exercise, [], finished, { replacedBy: null, replaces: toExercise(replacedExercise) });
       });
     },
 
@@ -365,7 +373,8 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         await recordableEntry(db, entryId);
         const { plannedSets, performedSets } = splitSets(await liveSetsOf(db, [entryId]));
         // recordableEntry refuses an Entry of a Finished Workout and a replaced Entry.
-        const next = pairByOrder(plannedSets, performedSets, false, false).find((pair) => pair.performed === null)?.planned;
+        const pairs = pairByOrder(plannedSets, performedSets, { finished: false, replaced: false });
+        const next = pairs.find((pair) => pair.performed === null)?.planned;
         if (!next) throw new RangeError(`No Planned Set left to perform in Entry ${entryId}`);
         if (next.maxReps !== null) {
           throw new RangeError("A Planned Set with a Rep range can't be Confirmed: the Reps done must be given");
@@ -466,24 +475,12 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
   };
 }
 
-/** The Exercises used as a Substitute for this Exercise in live Workouts, most recently used first. */
-async function previousSubstitutesFor(db: JournalDb, exerciseId: string): Promise<string[]> {
-  // Only Substitutes are in this index.
-  const substitutes = (await db.entries.orderBy("substitutesEntryId").toArray()).filter((e) => !e.deleted);
-  const replaced = await db.entries.bulkGet(substitutes.map((e) => e.substitutesEntryId!));
-  const workouts = await db.workouts.bulkGet(substitutes.map((e) => e.workoutId));
-  const uses = substitutes.flatMap((substitute, i) => {
-    const workout = workouts[i];
-    const replacedEntry = replaced[i];
-    if (!workout || workout.deleted || !replacedEntry || replacedEntry.deleted) return [];
-    return replacedEntry.exerciseId === exerciseId ? [{ exerciseId: substitute.exerciseId, workout }] : [];
-  });
-  uses.sort((a, b) => b.workout.date.localeCompare(a.workout.date) || b.workout.createdAt - a.workout.createdAt);
-  return [...new Set(uses.map((use) => use.exerciseId))];
-}
-
 /** The Exercise of the live Substitute performed instead of this Entry, if there is one. */
-function substituteOf(entries: EntryRecord[], entryId: string, exerciseByEntryId: Map<string, Exercise>): Exercise | null {
+function substituteOf(
+  entries: EntryRecord[],
+  entryId: string,
+  exerciseByEntryId: Map<string, Exercise>,
+): Exercise | null {
   const substitute = entries.find((e) => e.substitutesEntryId === entryId);
   return substitute ? exerciseByEntryId.get(substitute.id)! : null;
 }

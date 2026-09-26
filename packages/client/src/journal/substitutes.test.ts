@@ -77,7 +77,7 @@ function statesOf(workout: WorkoutWithEntries) {
   ]);
 }
 
-test("the replaced Entry's Planned Sets are replaced before Finish, and stay replaced rather than Not performed after it", async () => {
+test("the replaced Entry's Planned Sets are replaced before finishing, and stay replaced rather than Not performed once Finished", async () => {
   const { journal, workout, bench, squat } = await plannedWorkout();
   const substitute = await journal.substituteEntry(bench.id, "dumbbell press");
   await journal.addPerformedSet(substitute.id, { weight: 30, reps: 10 });
@@ -183,4 +183,33 @@ test("Substitute suggestions match the typed text in any case, and never offer t
   const suggested = await journal.suggestSubstitutes(bench.id, "PRESS");
 
   expect(suggested.map((e) => e.primaryName)).toEqual(["Dumbbell Press", "leg press"]);
+});
+
+test("only a planned Entry with no Performed Sets, not yet replaced, in a Workout not Finished can be substituted", async () => {
+  const { journal, workout, bench, squat } = await plannedWorkout();
+  const substitute = await journal.substituteEntry(squat.id, "leg press");
+  await journal.addEntry(workout.id, "plank");
+  const substitutable = async () =>
+    (await journal.getWorkout(workout.id))!.entries.map((e) => [e.exercise.primaryName, e.substitutable]);
+
+  const before = await substitutable();
+  await journal.confirmPlannedSet(bench.id);
+  const recorded = await substitutable();
+
+  expect(before).toEqual([
+    ["bench press", true],
+    ["squat", false],
+    ["leg press", false],
+    ["plank", false],
+  ]);
+  expect(substitute.substitutable).toBe(false);
+  expect(recorded[0]).toEqual(["bench press", false]);
+});
+
+test("no Entry of a Finished Workout can be substituted", async () => {
+  const { journal, workout } = await plannedWorkout();
+
+  await journal.finishWorkout(workout.id);
+
+  expect((await journal.getWorkout(workout.id))!.entries.map((e) => e.substitutable)).toEqual([false, false]);
 });

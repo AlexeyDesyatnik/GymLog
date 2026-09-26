@@ -89,3 +89,19 @@ export async function liveSetsOf(db: JournalDb, entryIds: string[]): Promise<Set
     .filter((s) => !s.deleted)
     .sort((a, b) => a.position - b.position);
 }
+
+/** The Exercises used as a Substitute for this Exercise in live Workouts, most recently used first. */
+export async function previousSubstitutesFor(db: JournalDb, exerciseId: string): Promise<string[]> {
+  // Only Substitutes are in this index.
+  const substitutes = (await db.entries.orderBy("substitutesEntryId").toArray()).filter((e) => !e.deleted);
+  const replaced = await db.entries.bulkGet(substitutes.map((e) => e.substitutesEntryId!));
+  const workouts = await db.workouts.bulkGet(substitutes.map((e) => e.workoutId));
+  const uses = substitutes.flatMap((substitute, i) => {
+    const workout = workouts[i];
+    const replacedEntry = replaced[i];
+    if (!workout || workout.deleted || !replacedEntry || replacedEntry.deleted) return [];
+    return replacedEntry.exerciseId === exerciseId ? [{ exerciseId: substitute.exerciseId, workout }] : [];
+  });
+  uses.sort((a, b) => b.workout.date.localeCompare(a.workout.date) || b.workout.createdAt - a.workout.createdAt);
+  return [...new Set(uses.map((use) => use.exerciseId))];
+}

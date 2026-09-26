@@ -20,7 +20,7 @@ export function entryView(
 ): Entry {
   const { plannedSets, performedSets } = splitSets(sets);
   const replaced = replacedBy !== null;
-  const pairs = pairByOrder(plannedSets, performedSets, finished, replaced);
+  const pairs = pairByOrder(plannedSets, performedSets, { finished, replaced });
   return {
     id: entry.id,
     exercise: toExercise(exercise),
@@ -31,7 +31,19 @@ export function entryView(
     nextSet: replaced ? null : nextSetOf(pairs),
     replacedBy,
     replaces,
+    substitutable: !finished && substitutionRefusal(sets, replaced) === null,
   };
+}
+
+/**
+ * Why the Entry can't be replaced by a Substitute, or null when it can: substitution is of a
+ * whole planned Entry, before any of it is performed, and only once.
+ */
+export function substitutionRefusal(sets: SetRecord[], replaced: boolean): string | null {
+  if (!sets.some((s) => s.kind === "planned")) return "Only an Entry from the Plan can be replaced";
+  if (sets.some((s) => s.kind === "performed")) return "An Entry with Performed Sets can't be replaced";
+  if (replaced) return "The Entry is already replaced";
+  return null;
 }
 
 /** An Entry's live Sets (in order), split by kind. */
@@ -67,8 +79,7 @@ function toPlannedSet(record: SetRecord): PlannedSet {
 export function pairByOrder(
   planned: PlannedSet[],
   performed: PerformedSet[],
-  finished: boolean,
-  replaced: boolean,
+  { finished, replaced }: { finished: boolean; replaced: boolean },
 ): SetPair[] {
   return Array.from({ length: Math.max(planned.length, performed.length) }, (_, i) => ({
     planned: planned[i] ?? null,
