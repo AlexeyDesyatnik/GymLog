@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { flushSync } from "react-dom";
 import { RPE_SCALE } from "@gymlog/shared";
 import type { Journal, PerformedSet, PlannedSet } from "../journal/journal.ts";
@@ -14,14 +14,14 @@ interface SetRowProps {
   /** In an Entry with a Plan, a Performed Set beyond the planned count. */
   beyondPlan: boolean;
   /** Only the Entry's last Performed Set can be deleted. */
-  last: boolean;
+  deletable: boolean;
   number: number;
   onChange: () => Promise<void>;
 }
 
 type Field = "weight" | "reps";
 
-export function SetRow({ journal, set, planned, beyondPlan, last, number, onChange }: SetRowProps) {
+export function SetRow({ journal, set, planned, beyondPlan, deletable, number, onChange }: SetRowProps) {
   const [weight, setWeight] = useState(showNumber(set.weight));
   const [reps, setReps] = useState(String(set.reps));
   /** The field being edited; the values show as text otherwise. */
@@ -36,6 +36,11 @@ export function SetRow({ journal, set, planned, beyondPlan, last, number, onChan
   const parsedReps = parseReps(reps);
   const valuesAutosave = useAutosave();
   const commentAutosave = useAutosave();
+
+  // A Set recorded after this one while the question is open makes it no longer deletable.
+  useEffect(() => {
+    if (!deletable) setConfirmingDelete(false);
+  }, [deletable]);
 
   // A layout effect runs while the opening tap is still being handled, which phones
   // require before they show the keyboard.
@@ -101,7 +106,7 @@ export function SetRow({ journal, set, planned, beyondPlan, last, number, onChan
   // Done as planned needs no note; a difference shows what the Plan said.
   const offPlan = planned !== null && (planned.weight !== set.weight || planned.reps !== set.reps);
 
-  if (confirmingDelete) {
+  if (confirmingDelete && deletable) {
     return (
       <ConfirmDelete
         className="set"
@@ -192,7 +197,7 @@ export function SetRow({ journal, set, planned, beyondPlan, last, number, onChan
       ) : null}
       {beyondPlan ? <p className="set-plan">сверх плана</p> : null}
 
-      {editing === null || !last ? null : (
+      {editing === null || !deletable ? null : (
         <div className="set-delete">
           <button
             className="button quiet danger-text"

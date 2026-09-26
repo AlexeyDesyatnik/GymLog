@@ -284,7 +284,9 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         if (!set || set.deleted || set.kind !== "performed") throw new RangeError(`No Performed Set ${setId}`);
         // Deleting from the middle would re-pair every Set after it with another Planned Set.
         const last = (await liveSetsOf([set.entryId])).filter((s) => s.kind === "performed").at(-1);
-        if (last?.id !== setId) throw new RangeError("Only the last Performed Set of an Entry can be deleted");
+        if (last?.id !== setId) {
+          throw new RangeError(`Performed Set ${setId} isn't the last of its Entry, and only the last can be deleted`);
+        }
         await db.sets.update(setId, { deleted: true, updatedAt: now() });
       });
     },

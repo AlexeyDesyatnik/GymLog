@@ -106,7 +106,7 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
               set={performed!}
               planned={planned}
               beyondPlan={hasPlan && planned === null}
-              last={i === performedPairs.length - 1}
+              deletable={i === performedPairs.length - 1}
               number={i + 1}
               onChange={onChange}
             />

@@ -167,20 +167,6 @@ test("a Comment can be set on a Performed Set, and blank text clears it", async 
   expect([withComment, (await performedSets())[0]!.comment]).toEqual(["кольнуло в плече", null]);
 });
 
-test("deleting a Performed Set removes it, and the others keep their order", async () => {
-  const { journal, entry, performedSets } = await journalWithEntry();
-  await journal.addPerformedSet(entry.id, { weight: 80, reps: 5 });
-  await journal.addPerformedSet(entry.id, { weight: 70, reps: 8 });
-  const accidental = await journal.addPerformedSet(entry.id, { weight: 70, reps: 8 });
-
-  await journal.deletePerformedSet(accidental.id);
-
-  expect((await performedSets()).map((s) => [s.weight, s.reps])).toEqual([
-    [80, 5],
-    [70, 8],
-  ]);
-});
-
 test("only the last Performed Set of an Entry can be deleted, so the Sets before it never re-pair", async () => {
   const { journal, entry, performedSets } = await journalWithEntry();
   await journal.addPerformedSet(entry.id, { weight: 80, reps: 5 });

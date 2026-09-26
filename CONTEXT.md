@@ -52,7 +52,7 @@ _Avoid_: Approach, series, warm-up set
 A Set in the Plan: what the user intends to do.
 
 **Performed Set** (выполненный подход):
-A Set the user actually did. Within an Entry, performed Sets pair with planned Sets by order; any beyond the planned count are simply performed Sets with no pair.
+A Set the user actually did. Within an Entry, performed Sets pair with planned Sets by order; any beyond the planned count are simply performed Sets with no pair. Only the last performed Set of an Entry can be deleted, so deleting never re-pairs the ones before it.
 _Avoid_: Actual set, logged set, unplanned set
 
 **Confirm** (подтвердить подход):
