@@ -19,7 +19,7 @@ The planned Sets of one Workout. Only the user edits it; what is actually perfor
 _Avoid_: Program, training plan
 
 **Plan notation** (нотация плана):
-The text form of a Plan: one line per Entry, the Exercise name followed by groups of weight x reps x sets, each optionally with a Target RPE after `@`, e.g. `bench press 80x5x3@7 70x8`. Plans are typed and edited in it.
+The text form of a Plan: one line per Entry, the Exercise name followed by groups of weight x reps x sets, each optionally with a Target RPE after `@`, e.g. `bench press 80x5x3@7 70x8`. The reps may be a Rep range (`bicep curl 15x10-12x3`). Plans are typed and edited in it.
 _Avoid_: Plan text, syntax
 
 **Template** (шаблон):
@@ -56,7 +56,7 @@ A Set the user actually did. Within an Entry, performed Sets pair with planned S
 _Avoid_: Actual set, logged set, unplanned set
 
 **Confirm** (подтвердить подход):
-To record the next Planned Set that has no Performed Set paired with it as done as planned: a Performed Set with its Weight and Reps, and no RPE or Comment.
+To record the next Planned Set that has no Performed Set paired with it as done as planned: a Performed Set with its Weight and Reps, and no RPE or Comment. A Planned Set with a Rep range can't be Confirmed, since the Reps actually done must be given.
 _Avoid_: Check off, complete, tick
 
 **Weight** (вес):
@@ -66,6 +66,10 @@ _Avoid_: Load
 **Reps** (повторы):
 The number of repetitions actually completed in a Set. A failed repetition is not counted.
 _Avoid_: Repetitions
+
+**Rep range** (диапазон повторов):
+Planned Reps given as a lowest and highest count, e.g. 10-12. A Performed Set with any Reps within it is done as planned.
+_Avoid_: Rep target, rep interval
 
 **RPE**:
 Rate of perceived exertion for a performed Set, one of: below 5, 5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10. Finer steps only where effort is high enough to matter. Optional; its absence is a normal state and is never defaulted or filled in, not even from a Target RPE.
