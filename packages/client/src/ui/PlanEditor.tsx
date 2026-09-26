@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { parsePlan, type PlanLineProblem } from "@gymlog/shared";
+import { formatReps, parsePlan, type PlanLineProblem } from "@gymlog/shared";
 import type { Journal } from "../journal/journal.ts";
 import { showNumber, showRpe } from "./numbers.ts";
 import { clearPlanDraft, savePlanDraft, type PlanDraft } from "./planDraft.ts";
@@ -20,6 +20,7 @@ const PROBLEMS: Record<PlanLineProblem, string> = {
   "no-name": "Нет названия упражнения.",
   "broken-group": "Похоже на недописанный подход, например «80x» без повторов.",
   "zero-reps-or-sets": "Повторов и подходов должно быть не меньше одного.",
+  "bad-rep-range": "В диапазоне повторов сначала меньшее число, потом большее, например 10-12.",
   "bad-target-rpe": "Целевой RPE пишется сразу после подходов, например 100x5x3@7, и бывает 5, 6, 7, 7,5, 8, 8,5, 9, 9,5 или 10.",
 };
 
@@ -94,7 +95,7 @@ export function PlanEditor({ journal, workoutId, draft, focusOnOpen, onClose, on
                 <span className="plan-line-groups">
                   {reading.groups.map((g, j) => (
                     <span key={j} className="plan-chip">
-                      {g.weight === null ? "без веса" : `${showNumber(g.weight)} кг`} × {g.reps}
+                      {g.weight === null ? "без веса" : `${showNumber(g.weight)} кг`} × {formatReps(g.reps, g.maxReps)}
                       {g.sets > 1 ? ` × ${g.sets} подх.` : ""}
                       {g.targetRpe === null ? "" : `, цель RPE ${showRpe(g.targetRpe)}`}
                     </span>

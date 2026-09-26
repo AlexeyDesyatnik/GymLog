@@ -510,6 +510,13 @@ a.workout-link {
   font-weight: 400;
 }
 
+/* A Rep range ("10-12") is wider than one count: the reps grow to fit it on one line. */
+.upcoming-set .set-value.reps {
+  width: auto;
+  min-width: 56px;
+  white-space: nowrap;
+}
+
 .set-plan {
   margin: -4px 0 0 24px;
   font-size: 13px;

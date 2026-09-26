@@ -2,13 +2,17 @@ import { TARGET_RPE_SCALE } from "./validation.ts";
 
 /**
  * Plan notation (ADR 0003): one line per Entry, the Exercise name followed by weight x reps x sets
- * groups, each optionally with a Target RPE for its first Set after "@".
+ * groups, each optionally with a Target RPE for its first Set after "@". The reps may be a Rep
+ * range, e.g. 10-12.
  */
 
 export interface PlanGroup {
   /** kg; null for a bodyweight Set. */
   weight: number | null;
+  /** The planned reps, or the lowest count of a Rep range. */
   reps: number;
+  /** The highest count of a Rep range; null when the reps are one count. */
+  maxReps: number | null;
   sets: number;
   /** The RPE the group's first Set aims for; null when not given. */
   targetRpe: number | null;
@@ -24,7 +28,9 @@ export type PlanLineProblem =
   /** A Planned Set needs at least 1 rep, and a group at least 1 set. */
   | "zero-reps-or-sets"
   /** A Target RPE off TARGET_RPE_SCALE, or one not right after a group. */
-  | "bad-target-rpe";
+  | "bad-target-rpe"
+  /** A Rep range whose highest count isn't above its lowest, e.g. "12-10". */
+  | "bad-rep-range";
 
 export type PlanLine =
   | { ok: true; exerciseName: string; groups: PlanGroup[] }
@@ -33,8 +39,14 @@ export type PlanLine =
 /** Latin and Cyrillic x in both cases, the multiplication sign, an asterisk and a slash. */
 const SEP = "[xXхХ×*/]";
 
-/** weight x reps x sets @ Target RPE; the weight may be empty or decimal, the sets and the RPE may be left out. */
-const GROUP = new RegExp(`^(\\d+(?:[.,]\\d+)?)?${SEP}(\\d+)(?:${SEP}(\\d+))?(?:@(\\d+(?:[.,]\\d+)?))?$`);
+/**
+ * weight x reps x sets @ Target RPE; the weight may be empty or decimal, the reps may be a Rep
+ * range with a hyphen or the dash a phone keyboard puts in its place, and the sets and the RPE
+ * may be left out.
+ */
+const GROUP = new RegExp(
+  `^(\\d+(?:[.,]\\d+)?)?${SEP}(\\d+)(?:[-–—](\\d+))?(?:${SEP}(\\d+))?(?:@(\\d+(?:[.,]\\d+)?))?$`,
+);
 
 /** A digit touching a separator: part of a group, never of an Exercise name. */
 const GROUP_FRAGMENT = new RegExp(`\\d${SEP}|${SEP}\\d`);
@@ -84,8 +96,9 @@ export function parsePlanLine(line: string): PlanLine {
     groups.unshift({
       weight: match[1] ? Number(match[1].replace(",", ".")) : null,
       reps: Number(match[2]),
-      sets: match[3] ? Number(match[3]) : 1,
-      targetRpe: match[4] ? Number(match[4].replace(",", ".")) : null,
+      maxReps: match[3] ? Number(match[3]) : null,
+      sets: match[4] ? Number(match[4]) : 1,
+      targetRpe: match[5] ? Number(match[5].replace(",", ".")) : null,
     });
   }
   if (tokens.some((token) => STRAY_RPE_MARK.test(token))) return { ok: false, problem: "bad-target-rpe" };
@@ -93,13 +106,14 @@ export function parsePlanLine(line: string): PlanLine {
   if (tokens.length === 0 || tokens.join("") === "") return { ok: false, problem: "no-name" };
   if (tokens.some((token) => GROUP_FRAGMENT.test(token))) return { ok: false, problem: "broken-group" };
   if (groups.some((g) => g.reps < 1 || g.sets < 1)) return { ok: false, problem: "zero-reps-or-sets" };
+  if (groups.some((g) => g.maxReps !== null && g.maxReps <= g.reps)) return { ok: false, problem: "bad-rep-range" };
   if (groups.some((g) => g.targetRpe !== null && !TARGET_RPE_SCALE.includes(g.targetRpe))) {
     return { ok: false, problem: "bad-target-rpe" };
   }
   return { ok: true, exerciseName: tokens.join(" "), groups };
 }
 
-type PlannedSetValues = { weight: number | null; reps: number; targetRpe: number | null };
+type PlannedSetValues = { weight: number | null; reps: number; maxReps: number | null; targetRpe: number | null };
 
 /** One Plan line from an Exercise name and its Planned Sets. */
 export function formatPlanLine(exerciseName: string, sets: PlannedSetValues[]): string {
@@ -108,22 +122,28 @@ export function formatPlanLine(exerciseName: string, sets: PlannedSetValues[]): 
 
 /**
  * Planned Sets as groups, e.g. "80x5x3@7 70x8"; a Set joins the group before it when it has
- * the same weight and reps and no Target RPE of its own.
+ * the same weight and reps (or Rep range) and no Target RPE of its own.
  */
 export function formatPlanSets(sets: PlannedSetValues[]): string {
   const groups: PlanGroup[] = [];
   for (const set of sets) {
     const last = groups.at(-1);
-    if (last && last.weight === set.weight && last.reps === set.reps && set.targetRpe === null) last.sets++;
-    else groups.push({ weight: set.weight, reps: set.reps, sets: 1, targetRpe: set.targetRpe });
+    const same = last && last.weight === set.weight && last.reps === set.reps && last.maxReps === set.maxReps;
+    if (same && set.targetRpe === null) last.sets++;
+    else groups.push({ weight: set.weight, reps: set.reps, maxReps: set.maxReps, sets: 1, targetRpe: set.targetRpe });
   }
   return groups.map(formatGroup).join(" ");
 }
 
-function formatGroup({ weight, reps, sets, targetRpe }: PlanGroup): string {
+function formatGroup({ weight, reps, maxReps, sets, targetRpe }: PlanGroup): string {
   const shownWeight = weight === null ? "" : withComma(weight);
   const shownRpe = targetRpe === null ? "" : `@${withComma(targetRpe)}`;
-  return `${shownWeight}x${reps}${sets > 1 ? `x${sets}` : ""}${shownRpe}`;
+  return `${shownWeight}x${formatReps(reps, maxReps)}${sets > 1 ? `x${sets}` : ""}${shownRpe}`;
+}
+
+/** Planned reps as written: "5", or a Rep range "10-12". */
+export function formatReps(reps: number, maxReps: number | null): string {
+  return maxReps === null ? String(reps) : `${reps}-${maxReps}`;
 }
 
 /** 82.5 → "82,5": numbers in Plan notation use a decimal comma. */

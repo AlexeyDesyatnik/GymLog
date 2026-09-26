@@ -48,4 +48,9 @@ export interface SetRecord extends SyncedRecord {
    */
   rpe: number | null;
   comment: string | null;
+  /**
+   * A Planned Set's Rep range: `reps` is its lowest count and this its highest. Null or missing
+   * (on Sets recorded before Rep ranges existed) for a single count and for a Performed Set.
+   */
+  maxReps?: number | null;
 }

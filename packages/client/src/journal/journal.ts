@@ -46,7 +46,10 @@ export interface PlannedSet {
   id: string;
   /** kg; null for a bodyweight Set. */
   weight: number | null;
+  /** The planned reps, or the lowest count of a Rep range. */
   reps: number;
+  /** The highest count of a Rep range; null when the reps are one count. */
+  maxReps: number | null;
   /** The RPE this Set aims for, given only on the first Set of a group; null otherwise. */
   targetRpe: number | null;
 }
@@ -57,6 +60,8 @@ export interface SetPair {
   performed: PerformedSet | null;
   /** A Planned Set with no Performed Set, in a Finished Workout. Derived, never stored. */
   notPerformed: boolean;
+  /** A Performed Set at its Planned Set's weight, with its Reps or Reps within its Rep range. */
+  asPlanned: boolean;
 }
 
 export interface Entry {
@@ -67,7 +72,13 @@ export interface Entry {
   /** Planned and Performed Sets paired by order: every Set of the Entry is in exactly one pair. */
   pairs: SetPair[];
   /** The numbers the next Performed Set starts from (number prefill), or null when there are none. */
-  nextSet: SetValues | null;
+  nextSet: NextSet | null;
+}
+
+/** Number prefill for the next Performed Set; reps are null when the user must give them (a Rep range). */
+export interface NextSet {
+  weight: number | null;
+  reps: number | null;
 }
 
 export interface WorkoutWithEntries extends Workout {
@@ -95,7 +106,10 @@ export interface Journal {
   /** Deletes an Entry added on the fly; its Sets go with it, hidden by the Entry's tombstone. */
   deleteEntry(entryId: string): Promise<void>;
   addPerformedSet(entryId: string, values: SetValues): Promise<PerformedSet>;
-  /** Records the next unpaired Planned Set as done: a Performed Set with its weight and reps. */
+  /**
+   * Records the next unpaired Planned Set as done: a Performed Set with its weight and reps.
+   * Refused for a Planned Set with a Rep range, whose Reps done must be given.
+   */
   confirmPlannedSet(entryId: string): Promise<PerformedSet>;
   editPerformedSet(setId: string, values: SetValues): Promise<void>;
   deletePerformedSet(setId: string): Promise<void>;
@@ -275,6 +289,9 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         const finished = false; // changeableEntry refuses an Entry of a Finished Workout
         const next = pairByOrder(plannedSets, performedSets, finished).find((pair) => pair.performed === null)?.planned;
         if (!next) throw new RangeError(`No Planned Set left to perform in Entry ${entryId}`);
+        if (next.maxReps !== null) {
+          throw new RangeError("A Planned Set with a Rep range can't be Confirmed: the Reps done must be given");
+        }
         return recordPerformedSet(entryId, { weight: next.weight, reps: next.reps });
       });
     },
@@ -341,8 +358,8 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
           const entry: EntryRecord = { ...newRecord(), workoutId, exerciseId: exercise.id, position: position++ };
           await db.entries.add(entry);
           // A group's Target RPE is for its first Set.
-          const plannedSets = line.groups.flatMap(({ weight, reps, sets, targetRpe }) =>
-            Array.from({ length: sets }, (_, i) => ({ weight, reps, targetRpe: i === 0 ? targetRpe : null })),
+          const plannedSets = line.groups.flatMap(({ weight, reps, maxReps, sets, targetRpe }) =>
+            Array.from({ length: sets }, (_, i) => ({ weight, reps, maxReps, targetRpe: i === 0 ? targetRpe : null })),
           );
           await db.sets.bulkAdd(
             plannedSets.map((set, i): SetRecord => ({
@@ -354,6 +371,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
               reps: set.reps,
               rpe: set.targetRpe,
               comment: null,
+              maxReps: set.maxReps,
             })),
           );
         }

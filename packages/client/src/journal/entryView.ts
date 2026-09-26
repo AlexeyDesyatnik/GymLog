@@ -1,5 +1,5 @@
 import type { EntryRecord, ExerciseRecord, SetRecord } from "@gymlog/shared";
-import type { Entry, Exercise, PerformedSet, PlannedSet, SetPair, SetValues } from "./journal.ts";
+import type { Entry, Exercise, NextSet, PerformedSet, PlannedSet, SetPair } from "./journal.ts";
 
 /**
  * An Entry as the UI reads it, with everything derived from its live Sets (given in order)
@@ -35,7 +35,13 @@ export function toPerformedSet(record: SetRecord): PerformedSet {
 }
 
 function toPlannedSet(record: SetRecord): PlannedSet {
-  return { id: record.id, weight: record.weight, reps: record.reps, targetRpe: record.rpe };
+  return {
+    id: record.id,
+    weight: record.weight,
+    reps: record.reps,
+    maxReps: record.maxReps ?? null,
+    targetRpe: record.rpe,
+  };
 }
 
 /** Pairs Planned and Performed Sets by order; in a Finished Workout, a Planned Set left unpaired is Not performed. */
@@ -44,21 +50,30 @@ export function pairByOrder(planned: PlannedSet[], performed: PerformedSet[], fi
     planned: planned[i] ?? null,
     performed: performed[i] ?? null,
     notPerformed: finished && planned[i] !== undefined && performed[i] === undefined,
+    asPlanned: isAsPlanned(planned[i], performed[i]),
   }));
 }
 
-function nextSetOf(pairs: SetPair[]): SetValues | null {
+function isAsPlanned(planned: PlannedSet | undefined, performed: PerformedSet | undefined): boolean {
+  if (!planned || !performed || planned.weight !== performed.weight) return false;
+  return performed.reps >= planned.reps && performed.reps <= (planned.maxReps ?? planned.reps);
+}
+
+function nextSetOf(pairs: SetPair[]): NextSet | null {
   const nextIndex = pairs.findIndex((pair) => pair.performed === null);
   const next = pairs[nextIndex]?.planned;
   if (next) {
+    const previous = pairs[nextIndex - 1];
+    const done =
+      previous?.planned && previous.performed ? { planned: previous.planned, performed: previous.performed } : null;
     // A weight changed from the Plan carries on to Planned Sets of the same planned weight;
     // the reps stay the Plan's.
-    const previous = pairs[nextIndex - 1];
-    const carried =
-      previous?.planned && previous.performed && previous.planned.weight === next.weight
-        ? previous.performed.weight
-        : next.weight;
-    return { weight: carried, reps: next.reps };
+    const sameWeight = done !== null && done.planned.weight === next.weight;
+    const weight = sameWeight ? done.performed.weight : next.weight;
+    if (next.maxReps === null) return { weight, reps: next.reps };
+    // A Rep range's reps are the user's to give; later Sets of its group repeat the Set before.
+    const sameRange = sameWeight && done.planned.reps === next.reps && done.planned.maxReps === next.maxReps;
+    return { weight, reps: sameRange ? done.performed.reps : null };
   }
   // Past the Plan, or with none, repeating the previous Set is one tap.
   const previous = pairs.at(-1)?.performed;

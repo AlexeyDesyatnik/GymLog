@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
-import { formatPlanSets } from "@gymlog/shared";
+import { formatPlanSets, formatReps } from "@gymlog/shared";
 import type { Entry, Journal, PlannedSet } from "../journal/journal.ts";
 import { parseReps, parseWeight, showNumber, showRpe, showWeight } from "./numbers.ts";
 import { ConfirmDelete } from "./ConfirmDelete.tsx";
@@ -29,14 +29,19 @@ export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps
   const nextNumber = performedPairs.length + 1;
   const typing = typed !== null && typed.number === nextNumber ? typed : null;
   const weight = typing?.weight ?? (suggestion ? showNumber(suggestion.weight) : "");
-  const reps = typing?.reps ?? (suggestion ? String(suggestion.reps) : "");
+  // A Rep range leaves the reps to the user, so there may be none to start from.
+  const reps = typing?.reps ?? (suggestion?.reps != null ? String(suggestion.reps) : "");
   const prefilled = typing === null && suggestion !== null;
+  // An empty reps field shows the Rep range to pick from.
+  const repsPlaceholder = nextPlanned?.maxReps != null ? formatReps(nextPlanned.reps, nextPlanned.maxReps) : "повт.";
   const parsedWeight = parseWeight(weight);
   const parsedReps = parseReps(reps);
-  // The next Planned Set's own numbers, typed or not, confirm it; other numbers record it as
-  // performed differently. Either way the button reads "✓ Сделано" while a Planned Set is next.
+  // The next Planned Set's own numbers, typed or not, confirm it; other numbers, or any with a
+  // Rep range, record it as performed. Either way the button reads "✓ Сделано" while a Planned
+  // Set is next.
   const asPlanned =
     nextPlanned !== undefined &&
+    nextPlanned.maxReps === null &&
     parsedWeight.ok &&
     parsedReps.ok &&
     parsedWeight.value === nextPlanned.weight &&
@@ -104,12 +109,13 @@ export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps
 
       {performedPairs.length > 0 ? (
         <ol className="sets">
-          {performedPairs.map(({ planned, performed }, i) => (
+          {performedPairs.map(({ planned, performed, asPlanned }, i) => (
             <SetRow
               key={performed!.id}
               journal={journal}
               set={performed!}
               planned={planned}
+              asPlanned={asPlanned}
               beyondPlan={hasPlan && planned === null}
               deletable={i === performedPairs.length - 1}
               readOnly={finished}
@@ -146,7 +152,7 @@ export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps
               pattern="[0-9]*"
               value={reps}
               onChange={(e) => type({ weight, reps: e.target.value })}
-              placeholder="повт."
+              placeholder={repsPlaceholder}
               aria-label="Повторы"
               aria-invalid={reps !== "" && !parsedReps.ok}
             />
@@ -192,7 +198,7 @@ function UnpairedPlannedSet({ set, number, children }: { set: PlannedSet; number
       <span className="set-number">{number}</span>
       <span className="set-value">{showWeight(set.weight)}</span>
       <span className="unit">кг ×</span>
-      <span className="set-value reps">{set.reps}</span>
+      <span className="set-value reps">{formatReps(set.reps, set.maxReps)}</span>
       {children}
     </li>
   );

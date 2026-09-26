@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { flushSync } from "react-dom";
-import { RPE_SCALE } from "@gymlog/shared";
+import { formatReps, RPE_SCALE } from "@gymlog/shared";
 import type { Journal, PerformedSet, PlannedSet } from "../journal/journal.ts";
 import { parseReps, parseWeight, showNumber, showRpe, showWeight } from "./numbers.ts";
 import { ConfirmDelete } from "./ConfirmDelete.tsx";
@@ -11,6 +11,8 @@ interface SetRowProps {
   set: PerformedSet;
   /** The Planned Set this one is paired with, if any. */
   planned: PlannedSet | null;
+  /** Done at the planned weight with the planned Reps, or Reps within the Rep range. */
+  asPlanned: boolean;
   /** In an Entry with a Plan, a Performed Set beyond the planned count. */
   beyondPlan: boolean;
   /** Only the Entry's last Performed Set can be deleted. */
@@ -23,7 +25,17 @@ interface SetRowProps {
 
 type Field = "weight" | "reps";
 
-export function SetRow({ journal, set, planned, beyondPlan, deletable, readOnly, number, onChange }: SetRowProps) {
+export function SetRow({
+  journal,
+  set,
+  planned,
+  asPlanned,
+  beyondPlan,
+  deletable,
+  readOnly,
+  number,
+  onChange,
+}: SetRowProps) {
   const [weight, setWeight] = useState(showNumber(set.weight));
   const [reps, setReps] = useState(String(set.reps));
   /** The field being edited; the values show as text otherwise. */
@@ -108,7 +120,7 @@ export function SetRow({ journal, set, planned, beyondPlan, deletable, readOnly,
   // What the Plan aimed for, so the RPE picker can show it once the Set is done.
   const targetRpe = planned?.targetRpe ?? null;
   // Done as planned needs no note; a difference shows what the Plan said.
-  const offPlan = planned !== null && (planned.weight !== set.weight || planned.reps !== set.reps);
+  const offPlan = planned !== null && !asPlanned;
 
   const values = (
     <>
@@ -128,7 +140,7 @@ export function SetRow({ journal, set, planned, beyondPlan, deletable, readOnly,
     <>
       {offPlan ? (
         <p className="set-plan">
-          план {showWeight(planned.weight)} кг × {planned.reps}
+          план {showWeight(planned.weight)} кг × {formatReps(planned.reps, planned.maxReps)}
         </p>
       ) : null}
       {beyondPlan ? <p className="set-plan">сверх плана</p> : null}
