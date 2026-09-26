@@ -19,7 +19,7 @@ The planned Sets of one Workout. Only the user edits it; what is actually perfor
 _Avoid_: Program, training plan
 
 **Plan notation** (нотация плана):
-The text form of a Plan: one line per Entry, the Exercise name followed by groups of weight x reps x sets, e.g. `bench press 80x5x3 70x8`. Plans are typed and edited in it.
+The text form of a Plan: one line per Entry, the Exercise name followed by groups of weight x reps x sets, each optionally with a Target RPE after `@`, e.g. `bench press 80x5x3@7 70x8`. Plans are typed and edited in it.
 _Avoid_: Plan text, syntax
 
 **Template** (шаблон):
@@ -68,8 +68,12 @@ The number of repetitions actually completed in a Set. A failed repetition is no
 _Avoid_: Repetitions
 
 **RPE**:
-Rate of perceived exertion for a performed Set, one of: below 5, 5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10. Finer steps only where effort is high enough to matter. Optional; its absence is a normal state and is never defaulted or filled in. Planned Sets do not carry RPE.
-_Avoid_: Target RPE, RIR
+Rate of perceived exertion for a performed Set, one of: below 5, 5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10. Finer steps only where effort is high enough to matter. Optional; its absence is a normal state and is never defaulted or filled in, not even from a Target RPE.
+_Avoid_: RIR
+
+**Target RPE** (целевой RPE):
+The RPE a Plan aims for on the first Set of a group, so the Weight of the Sets after it can be adjusted by feel (target first-Set RPE). One of 5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10. A guide only: it is never recorded as a performed Set's RPE.
+_Avoid_: Planned RPE, RPE target
 
 **Comment** (комментарий):
 Free text attached to a Set, for anything unusual: pain, broken technique, a failed repetition.
