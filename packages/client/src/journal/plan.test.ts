@@ -260,3 +260,56 @@ test("the Plan can be set again once its Performed Sets are deleted, including a
   await journal.setPlan(workout.id, "squat 110x5x3");
   expect((await journal.getWorkout(workout.id))!.planNotation).toBe("squat 110x5x3");
 });
+
+test("a Target RPE belongs to the first Planned Set of its group, and reads back after @", async () => {
+  const { journal, workout } = await journalWithWorkout();
+
+  await journal.setPlan(workout.id, "squat 100x5x3@7");
+
+  const read = (await journal.getWorkout(workout.id))!;
+  expect(read.entries[0]!.plannedSets.map((s) => s.targetRpe)).toEqual([7, null, null]);
+  expect(read.planNotation).toBe("squat 100x5x3@7");
+});
+
+test.each([
+  ["squat 100x5x3@7", "squat 100x5x3@7"],
+  ["squat 100x5x3@ 7", "squat 100x5x3@7"],
+  ["squat 100x5x3 @7", "squat 100x5x3@7"],
+  ["squat 100x5x3 @ 7", "squat 100x5x3@7"],
+  ["squat 100x5x3rpe7", "squat 100x5x3@7"],
+  ["squat 100x5x3 RPE 7", "squat 100x5x3@7"],
+  ["squat 100x5x3 рпе 7", "squat 100x5x3@7"],
+  ["squat 100x5x3 РПЕ7,5", "squat 100x5x3@7,5"],
+  ["bench press 80x5@8 70x8x2 rpe 7.5", "bench press 80x5@8 70x8x2@7,5"],
+  ["pull-up x8x3@8", "pull-up x8x3@8"],
+])("a Target RPE typed as %j reads back as %j", async (typed, readBack) => {
+  const { journal, workout } = await journalWithWorkout();
+
+  await journal.setPlan(workout.id, typed);
+
+  expect((await journal.getWorkout(workout.id))!.planNotation).toBe(readBack);
+});
+
+test.each(["squat 100x5x3@6.5", "squat 100x5x3@4", "squat 100x5x3@11", "squat 100x5x3@", "squat 100x5x3@7@8"])(
+  "%j has a Target RPE off the list and isn't understood",
+  async (line) => {
+    const { journal, workout } = await journalWithWorkout();
+
+    const [reading] = await journal.setPlan(workout.id, line);
+
+    expect(reading).toEqual({ ok: false, problem: "bad-target-rpe" });
+    expect(await planOf(journal, workout.id)).toEqual([]);
+  },
+);
+
+test.each([
+  ["squat 100x5@7 100x5x2", "squat 100x5x3@7"],
+  ["squat 100x5@7 100x5@7", "squat 100x5@7 100x5@7"],
+  ["squat 100x5x2 100x5@8", "squat 100x5x2 100x5@8"],
+])("reading back %j merges a Set into the group before it only without its own Target RPE: %j", async (typed, readBack) => {
+  const { journal, workout } = await journalWithWorkout();
+
+  await journal.setPlan(workout.id, typed);
+
+  expect((await journal.getWorkout(workout.id))!.planNotation).toBe(readBack);
+});

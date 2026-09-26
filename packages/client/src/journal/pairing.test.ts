@@ -210,3 +210,12 @@ test("back at the planned weight, the next Set starts from the Plan again", asyn
 
   expect(nextSetValues(await read())).toEqual([80, 5]);
 });
+
+test("confirming a Planned Set with a Target RPE leaves the Performed Set's RPE empty", async () => {
+  const { journal, entry, read } = await plannedEntry("squat 100x5x3@7");
+
+  await journal.confirmPlannedSet(entry.id);
+
+  const [pair] = (await read()).pairs;
+  expect([pair!.planned!.targetRpe, pair!.performed!.rpe]).toEqual([7, null]);
+});

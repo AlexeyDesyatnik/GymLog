@@ -35,6 +35,8 @@ export interface PlannedSet {
   /** kg; null for a bodyweight Set. */
   weight: number | null;
   reps: number;
+  /** The RPE this Set aims for, given only on the first Set of a group; null otherwise. */
+  targetRpe: number | null;
 }
 
 /** A Planned Set and the Performed Set paired with it; either side may be missing. */
@@ -326,7 +328,10 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
           const exercise = await findOrCreateExercise(line.exerciseName);
           const entry: EntryRecord = { ...newRecord(), workoutId, exerciseId: exercise.id, position: position++ };
           await db.entries.add(entry);
-          const plannedSets = line.groups.flatMap((g) => Array.from({ length: g.sets }, () => g));
+          // A group's Target RPE is for its first Set.
+          const plannedSets = line.groups.flatMap((g) =>
+            Array.from({ length: g.sets }, (_, i) => ({ ...g, targetRpe: i === 0 ? g.targetRpe : null })),
+          );
           await db.sets.bulkAdd(
             plannedSets.map((g, i): SetRecord => ({
               ...newRecord(),
@@ -335,7 +340,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
               position: i,
               weight: g.weight,
               reps: g.reps,
-              rpe: null,
+              rpe: g.targetRpe,
               comment: null,
             })),
           );
@@ -366,7 +371,7 @@ function toPerformedSet(record: SetRecord): PerformedSet {
 }
 
 function toPlannedSet(record: SetRecord): PlannedSet {
-  return { id: record.id, weight: record.weight, reps: record.reps };
+  return { id: record.id, weight: record.weight, reps: record.reps, targetRpe: record.rpe };
 }
 
 function pairByOrder(planned: PlannedSet[], performed: PerformedSet[]): SetPair[] {

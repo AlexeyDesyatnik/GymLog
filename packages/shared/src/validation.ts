@@ -16,6 +16,9 @@ export const RPE_BELOW_5 = 4;
 /** Every RPE value, in order: below 5, whole numbers to 7, then half steps to 10. */
 export const RPE_SCALE: readonly number[] = [RPE_BELOW_5, 5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10];
 
+/** A Target RPE is on the scale above "below 5". */
+export const TARGET_RPE_SCALE: readonly number[] = RPE_SCALE.filter((value) => value !== RPE_BELOW_5);
+
 /** RPE is a value on the scale, or null when not given. */
 export function checkRpe(rpe: number | null): void {
   if (rpe !== null && !RPE_SCALE.includes(rpe)) {

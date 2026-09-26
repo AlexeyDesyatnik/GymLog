@@ -20,6 +20,7 @@ const PROBLEMS: Record<PlanLineProblem, string> = {
   "no-name": "Нет названия упражнения.",
   "broken-group": "Похоже на недописанный подход, например «80x» без повторов.",
   "zero-reps-or-sets": "Повторов и подходов должно быть не меньше одного.",
+  "bad-target-rpe": "Целевой RPE пишется сразу после подходов, например 100x5x3@7, и бывает 5, 6, 7, 7,5, 8, 8,5, 9, 9,5 или 10.",
 };
 
 type Outcome = "editing" | "lines-skipped" | "failed";

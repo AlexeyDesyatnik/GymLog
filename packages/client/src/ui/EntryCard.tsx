@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { formatPlanSets } from "@gymlog/shared";
 import type { Entry, Journal } from "../journal/journal.ts";
-import { parseReps, parseWeight, showNumber, showWeight } from "./numbers.ts";
+import { parseReps, parseWeight, showNumber, showRpe, showWeight } from "./numbers.ts";
 import { ConfirmDelete } from "./ConfirmDelete.tsx";
 import { formatSetCount } from "./format.ts";
 import { SetRow } from "./SetRow.tsx";
@@ -115,36 +115,41 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
       ) : null}
 
       <form className="add-set" onSubmit={addSet}>
-        <span className="set-number" aria-hidden="true">
-          {nextNumber}
-        </span>
-        <input
-          id={`new-set-weight-${entry.id}`}
-          className={`num-input${prefilled ? " prefilled" : ""}`}
-          type="text"
-          inputMode="decimal"
-          value={weight}
-          onChange={(e) => type({ weight: e.target.value, reps })}
-          placeholder={suggestion !== null && suggestion.weight === null ? "—" : "вес"}
-          aria-label="Вес, кг"
-          aria-invalid={!parsedWeight.ok}
-        />
-        <span className="unit">кг ×</span>
-        <input
-          id={`new-set-reps-${entry.id}`}
-          className={`num-input reps${prefilled ? " prefilled" : ""}`}
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={reps}
-          onChange={(e) => type({ weight, reps: e.target.value })}
-          placeholder="повт."
-          aria-label="Повторы"
-          aria-invalid={reps !== "" && !parsedReps.ok}
-        />
-        <button className="button primary" type="submit" disabled={!parsedWeight.ok || !parsedReps.ok || saving}>
-          {nextPlanned ? "✓ Сделано" : "+ Подход"}
-        </button>
+        <div className="add-set-row">
+          <span className="set-number" aria-hidden="true">
+            {nextNumber}
+          </span>
+          <input
+            id={`new-set-weight-${entry.id}`}
+            className={`num-input${prefilled ? " prefilled" : ""}`}
+            type="text"
+            inputMode="decimal"
+            value={weight}
+            onChange={(e) => type({ weight: e.target.value, reps })}
+            placeholder={suggestion !== null && suggestion.weight === null ? "—" : "вес"}
+            aria-label="Вес, кг"
+            aria-invalid={!parsedWeight.ok}
+          />
+          <span className="unit">кг ×</span>
+          <input
+            id={`new-set-reps-${entry.id}`}
+            className={`num-input reps${prefilled ? " prefilled" : ""}`}
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={reps}
+            onChange={(e) => type({ weight, reps: e.target.value })}
+            placeholder="повт."
+            aria-label="Повторы"
+            aria-invalid={reps !== "" && !parsedReps.ok}
+          />
+          <button className="button primary" type="submit" disabled={!parsedWeight.ok || !parsedReps.ok || saving}>
+            {nextPlanned ? "✓ Сделано" : "+ Подход"}
+          </button>
+        </div>
+        {nextPlanned?.targetRpe != null ? (
+          <p className="set-target">цель RPE {showRpe(nextPlanned.targetRpe)}</p>
+        ) : null}
       </form>
 
       {laterPlanned.length > 0 ? (
@@ -155,6 +160,9 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
               <span className="set-value">{showWeight(set.weight)}</span>
               <span className="unit">кг ×</span>
               <span className="set-value reps">{set.reps}</span>
+              {set.targetRpe === null ? null : (
+                <span className="upcoming-target">цель RPE {showRpe(set.targetRpe)}</span>
+              )}
             </li>
           ))}
         </ol>

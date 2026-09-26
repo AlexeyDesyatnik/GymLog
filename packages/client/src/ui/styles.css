@@ -315,7 +315,7 @@ a.workout-link {
 
 .set-values,
 .set-editing,
-.add-set {
+.add-set-row {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -465,9 +465,12 @@ a.workout-link {
   cursor: pointer;
 }
 
-/* The next Set: outlined, so it never reads as one more Performed Set.
+/* The next Set: outlined, so it never reads as one more Performed Set; a Target RPE wraps under it.
    The negative margin (padding plus border) keeps its fields in line with the Sets above. */
 .add-set {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   margin: 4px -7px 0;
   padding: 6px;
   border: 1px dashed var(--accent);
@@ -496,6 +499,18 @@ a.workout-link {
   margin: -4px 0 0 24px;
   font-size: 13px;
   color: var(--muted);
+}
+
+/* A Target RPE is a guide for the Set, not something to fill in: small and muted. */
+.set-target {
+  margin: 0 0 0 24px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.upcoming-target {
+  margin-left: auto;
+  font-size: 13px;
 }
 
 .num-input.prefilled {
