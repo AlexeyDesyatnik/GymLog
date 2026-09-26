@@ -193,6 +193,16 @@ input:focus-visible {
   padding: 2px 8px;
 }
 
+/* Finished is a settled state, not news: neutral where "сегодня" is blue. */
+.finished-tag {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -650,4 +660,63 @@ a.workout-link:focus-visible {
   letter-spacing: 0.05em;
   color: var(--muted);
   margin-right: 4px;
+}
+
+/* Finishing */
+
+.finish {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.finished-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.finished-text {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.finished-text strong {
+  color: var(--ink);
+}
+
+/* A recorded Set in a Finished Workout: the same row, nothing to tap. */
+.set-summary.read-only {
+  cursor: default;
+}
+
+.chip {
+  margin-left: auto;
+  font: 500 14px/1 var(--font);
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.set-comment {
+  margin: 0 0 0 24px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+/* No reason is recorded and none is implied: quiet, like the Plan it comes from. */
+.not-performed {
+  margin-left: auto;
+  font-size: 13px;
+  font-style: italic;
 }

@@ -218,3 +218,42 @@ test("an Entry with Planned Sets can't be deleted; editing the Plan notation rem
   await expect(journal.deleteEntry(planned.id)).rejects.toThrow();
   expect((await journal.getWorkout(workout.id))!.entries.map((e) => e.id)).toEqual([planned.id]);
 });
+
+test("nothing can be added to a deleted Workout", async () => {
+  const { journal, workout } = await journalWithWorkout();
+  await journal.deleteWorkout(workout.id);
+
+  await expect(journal.addEntry(workout.id, "squat")).rejects.toThrow();
+  await expect(journal.setPlan(workout.id, "squat 100x5")).rejects.toThrow();
+});
+
+test("a deleted Entry and its Sets can't be recorded into or changed", async () => {
+  const { journal, workout } = await journalWithWorkout();
+  const typo = await journal.addEntry(workout.id, "bnech press");
+  const set = await journal.addPerformedSet(typo.id, { weight: 80, reps: 5 });
+  await journal.deleteEntry(typo.id);
+
+  await expect(journal.addPerformedSet(typo.id, { weight: 80, reps: 5 })).rejects.toThrow();
+  await expect(journal.editPerformedSet(set.id, { weight: 82.5, reps: 5 })).rejects.toThrow();
+  await expect(journal.setComment(set.id, "опечатка")).rejects.toThrow();
+});
+
+test("a deleted Performed Set can't be edited or commented", async () => {
+  const { journal, entry, performedSets } = await journalWithEntry();
+  const set = await journal.addPerformedSet(entry.id, { weight: 80, reps: 5 });
+  await journal.deletePerformedSet(set.id);
+
+  await expect(journal.editPerformedSet(set.id, { weight: 82.5, reps: 5 })).rejects.toThrow();
+  await expect(journal.setComment(set.id, "лишний")).rejects.toThrow();
+  expect(await performedSets()).toEqual([]);
+});
+
+test("a Planned Set can't be edited or commented as if performed; editing the Plan notation changes it", async () => {
+  const { journal, workout } = await journalWithWorkout();
+  await journal.setPlan(workout.id, "bench press 80x5");
+  const planned = (await journal.getWorkout(workout.id))!.entries[0]!.plannedSets[0]!;
+
+  await expect(journal.editPerformedSet(planned.id, { weight: 90, reps: 5 })).rejects.toThrow();
+  await expect(journal.setComment(planned.id, "тяжело")).rejects.toThrow();
+  expect((await journal.getWorkout(workout.id))!.planNotation).toBe("bench press 80x5");
+});

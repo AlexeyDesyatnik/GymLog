@@ -12,8 +12,11 @@ Node.js 24 and npm.
 npm install         # once, after cloning or pulling new dependencies
 npm run dev         # start the app for development
 npm test            # run the test suite
+npm run test:e2e    # run the end-to-end flows in a phone-sized Chromium
 npm run typecheck   # check types
 ```
+
+Before the first `npm run test:e2e`, install its browser once with `npx playwright install chromium`.
 
 ## Opening the app from a phone
 

@@ -15,13 +15,15 @@ interface SetRowProps {
   beyondPlan: boolean;
   /** Only the Entry's last Performed Set can be deleted. */
   deletable: boolean;
+  /** In a Finished Workout: shown as recorded, with nothing to change. */
+  readOnly: boolean;
   number: number;
   onChange: () => Promise<void>;
 }
 
 type Field = "weight" | "reps";
 
-export function SetRow({ journal, set, planned, beyondPlan, deletable, number, onChange }: SetRowProps) {
+export function SetRow({ journal, set, planned, beyondPlan, deletable, readOnly, number, onChange }: SetRowProps) {
   const [weight, setWeight] = useState(showNumber(set.weight));
   const [reps, setReps] = useState(String(set.reps));
   /** The field being edited; the values show as text otherwise. */
@@ -108,6 +110,45 @@ export function SetRow({ journal, set, planned, beyondPlan, deletable, number, o
   // Done as planned needs no note; a difference shows what the Plan said.
   const offPlan = planned !== null && (planned.weight !== set.weight || planned.reps !== set.reps);
 
+  const values = (
+    <>
+      <span className="set-value" data-field="weight">
+        {showWeight(set.weight)}
+      </span>
+      <span className="unit">кг ×</span>
+      <span className="set-value reps" data-field="reps">
+        {set.reps}
+      </span>
+      <span className="set-done" aria-hidden="true">
+        ✓
+      </span>
+    </>
+  );
+  const planNotes = (
+    <>
+      {offPlan ? (
+        <p className="set-plan">
+          план {showWeight(planned.weight)} кг × {planned.reps}
+        </p>
+      ) : null}
+      {beyondPlan ? <p className="set-plan">сверх плана</p> : null}
+    </>
+  );
+
+  if (readOnly) {
+    return (
+      <li className="set">
+        <div className="set-values">
+          <span className="set-number">{number}</span>
+          <span className="set-summary read-only">{values}</span>
+          {set.rpe === null ? null : <span className="chip">RPE {showRpe(set.rpe)}</span>}
+        </div>
+        {planNotes}
+        {set.comment === null ? null : <p className="set-comment">{set.comment}</p>}
+      </li>
+    );
+  }
+
   if (confirmingDelete && deletable) {
     return (
       <ConfirmDelete
@@ -130,16 +171,7 @@ export function SetRow({ journal, set, planned, beyondPlan, deletable, number, o
             onClick={startEditing}
             aria-label={`Подход ${number}: ${shownWeight === null ? "без веса" : `${shownWeight} кг`} × ${set.reps}, изменить`}
           >
-            <span className="set-value" data-field="weight">
-              {showWeight(set.weight)}
-            </span>
-            <span className="unit">кг ×</span>
-            <span className="set-value reps" data-field="reps">
-              {set.reps}
-            </span>
-            <span className="set-done" aria-hidden="true">
-              ✓
-            </span>
+            {values}
           </button>
         ) : (
           <div className="set-editing" onBlur={stopEditing}>
@@ -192,12 +224,7 @@ export function SetRow({ journal, set, planned, beyondPlan, deletable, number, o
         </button>
       </div>
 
-      {offPlan ? (
-        <p className="set-plan">
-          план {showWeight(planned.weight)} кг × {planned.reps}
-        </p>
-      ) : null}
-      {beyondPlan ? <p className="set-plan">сверх плана</p> : null}
+      {planNotes}
 
       {editing === null || !deletable ? null : (
         <div className="set-delete">

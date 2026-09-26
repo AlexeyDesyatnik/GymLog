@@ -16,6 +16,8 @@ export interface SyncedRecord {
 export interface WorkoutRecord extends SyncedRecord {
   date: LocalDate;
   createdAt: number;
+  /** Missing on Workouts recorded before finishing existed; missing means not Finished. */
+  finished?: boolean;
 }
 
 export interface ExerciseRecord extends SyncedRecord {

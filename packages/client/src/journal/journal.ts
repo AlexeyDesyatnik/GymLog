@@ -2,11 +2,21 @@ import { checkRpe, checkSetValues, exerciseNameKey, formatPlanLine, parsePlan, t
 import type { EntryRecord, ExerciseRecord, LocalDate, SetRecord, SyncedRecord, WorkoutRecord } from "@gymlog/shared";
 import { entryView, isPlanLocked, pairByOrder, splitSets, toExercise, toPerformedSet } from "./entryView.ts";
 import { newId } from "./ids.ts";
-import { liveEntriesOf, liveSetsOf, openStore } from "./store.ts";
+import {
+  changeableEntry,
+  changeablePerformedSet,
+  changeableWorkout,
+  liveEntriesOf,
+  liveSetsOf,
+  openStore,
+  workoutTables,
+} from "./store.ts";
 
 export interface Workout {
   id: string;
   date: LocalDate;
+  /** Declared fully recorded; a Finished Workout is read-only until finishing is undone. */
+  finished: boolean;
 }
 
 /** A Workout as shown in the list of Workouts. */
@@ -44,6 +54,8 @@ export interface PlannedSet {
 export interface SetPair {
   planned: PlannedSet | null;
   performed: PerformedSet | null;
+  /** A Planned Set with no Performed Set, in a Finished Workout. Derived, never stored. */
+  notPerformed: boolean;
 }
 
 export interface Entry {
@@ -73,6 +85,10 @@ export interface Journal {
   getWorkout(id: string): Promise<WorkoutWithEntries | undefined>;
   changeWorkoutDate(id: string, date: LocalDate): Promise<void>;
   deleteWorkout(id: string): Promise<void>;
+  /** Declares the Workout fully recorded, which makes it read-only; its unrecorded Planned Sets are Not performed. */
+  finishWorkout(id: string): Promise<void>;
+  /** The only change a Finished Workout takes: it becomes changeable again, and nothing is Not performed. */
+  undoFinishing(id: string): Promise<void>;
   /** Adds an Entry for the Exercise with this name, creating the Exercise if no name matches. */
   addEntry(workoutId: string, exerciseName: string): Promise<Entry>;
   /** Deletes an Entry added on the fly; its Sets go with it, hidden by the Entry's tombstone. */
@@ -143,7 +159,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
 
   return {
     async createWorkout(date) {
-      const record: WorkoutRecord = { ...newRecord(), date, createdAt: now() };
+      const record: WorkoutRecord = { ...newRecord(), date, createdAt: now(), finished: false };
       await db.workouts.add(record);
       return toWorkout(record);
     },
@@ -169,7 +185,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       const exercises = await db.exercises.bulkGet(entries.map((e) => e.exerciseId));
       const sets = await liveSetsOf(db, entries.map((e) => e.id));
       const views = entries.map((entry, i) =>
-        entryView(entry, exercises[i]!, sets.filter((s) => s.entryId === entry.id)),
+        entryView(entry, exercises[i]!, sets.filter((s) => s.entryId === entry.id), workout.finished === true),
       );
       return {
         ...toWorkout(workout),
@@ -183,16 +199,39 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     },
 
     async changeWorkoutDate(id, date) {
-      await db.workouts.update(id, { date, updatedAt: now() });
+      await db.transaction("rw", db.workouts, async () => {
+        await changeableWorkout(db, id);
+        await db.workouts.update(id, { date, updatedAt: now() });
+      });
     },
 
     async deleteWorkout(id) {
-      // A tombstone rather than a removal, so the deletion can reach other devices.
-      await db.workouts.update(id, { deleted: true, updatedAt: now() });
+      await db.transaction("rw", db.workouts, async () => {
+        await changeableWorkout(db, id);
+        // A tombstone rather than a removal, so the deletion can reach other devices.
+        await db.workouts.update(id, { deleted: true, updatedAt: now() });
+      });
+    },
+
+    async finishWorkout(id) {
+      await db.transaction("rw", db.workouts, async () => {
+        await changeableWorkout(db, id);
+        await db.workouts.update(id, { finished: true, updatedAt: now() });
+      });
+    },
+
+    async undoFinishing(id) {
+      await db.transaction("rw", db.workouts, async () => {
+        const workout = await db.workouts.get(id);
+        if (!workout || workout.deleted) throw new RangeError(`No Workout ${id}`);
+        if (!workout.finished) throw new RangeError(`Workout ${id} isn't Finished`);
+        await db.workouts.update(id, { finished: false, updatedAt: now() });
+      });
     },
 
     async addEntry(workoutId, exerciseName) {
-      return db.transaction("rw", [db.exercises, db.entries], async () => {
+      return db.transaction("rw", [db.workouts, db.exercises, db.entries], async () => {
+        await changeableWorkout(db, workoutId);
         const exercise = await findOrCreateExercise(exerciseName);
         const count = await db.entries.where("workoutId").equals(workoutId).count();
         const entry: EntryRecord = { ...newRecord(), workoutId, exerciseId: exercise.id, position: count };
@@ -209,11 +248,10 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     },
 
     async deleteEntry(entryId) {
-      await db.transaction("rw", [db.entries, db.sets], async () => {
-        const entry = await db.entries.get(entryId);
-        if (!entry || entry.deleted) throw new RangeError(`No Entry ${entryId}`);
-        const sets = await db.sets.where("entryId").equals(entryId).toArray();
-        if (sets.some((s) => !s.deleted && s.kind === "planned")) {
+      await db.transaction("rw", workoutTables(db), async () => {
+        await changeableEntry(db, entryId);
+        const sets = await liveSetsOf(db, [entryId]);
+        if (sets.some((s) => s.kind === "planned")) {
           throw new RangeError("An Entry from the Plan is removed by editing the Plan notation");
         }
         // Like a Workout, the Entry's tombstone hides its Sets.
@@ -223,14 +261,17 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
 
     async addPerformedSet(entryId, values) {
       checkSetValues(values);
-      return db.transaction("rw", db.sets, () => recordPerformedSet(entryId, values));
+      return db.transaction("rw", workoutTables(db), async () => {
+        await changeableEntry(db, entryId);
+        return recordPerformedSet(entryId, values);
+      });
     },
 
     async confirmPlannedSet(entryId) {
-      return db.transaction("rw", db.sets, async () => {
-        const sets = await liveSetsOf(db, [entryId]);
-        const { plannedSets, performedSets } = splitSets(sets);
-        const next = pairByOrder(plannedSets, performedSets).find((pair) => pair.performed === null)?.planned;
+      return db.transaction("rw", workoutTables(db), async () => {
+        await changeableEntry(db, entryId);
+        const { plannedSets, performedSets } = splitSets(await liveSetsOf(db, [entryId]));
+        const next = pairByOrder(plannedSets, performedSets, false).find((pair) => pair.performed === null)?.planned;
         if (!next) throw new RangeError(`No Planned Set left to perform in Entry ${entryId}`);
         return recordPerformedSet(entryId, { weight: next.weight, reps: next.reps });
       });
@@ -238,13 +279,15 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
 
     async editPerformedSet(setId, { weight, reps }) {
       checkSetValues({ weight, reps });
-      await db.sets.update(setId, { weight, reps, updatedAt: now() });
+      await db.transaction("rw", workoutTables(db), async () => {
+        await changeablePerformedSet(db, setId);
+        await db.sets.update(setId, { weight, reps, updatedAt: now() });
+      });
     },
 
     async deletePerformedSet(setId) {
-      await db.transaction("rw", db.sets, async () => {
-        const set = await db.sets.get(setId);
-        if (!set || set.deleted || set.kind !== "performed") throw new RangeError(`No Performed Set ${setId}`);
+      await db.transaction("rw", workoutTables(db), async () => {
+        const set = await changeablePerformedSet(db, setId);
         // Deleting from the middle would re-pair every Set after it with another Planned Set.
         const last = (await liveSetsOf(db, [set.entryId])).filter((s) => s.kind === "performed").at(-1);
         if (last?.id !== setId) {
@@ -256,23 +299,24 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
 
     async setRpe(setId, rpe) {
       checkRpe(rpe);
-      await db.transaction("rw", db.sets, async () => {
+      await db.transaction("rw", workoutTables(db), async () => {
         // A Planned Set's record holds its Target RPE in the same place; the Plan notation changes that.
-        const set = await db.sets.get(setId);
-        if (!set || set.deleted || set.kind !== "performed") throw new RangeError(`No Performed Set ${setId}`);
+        await changeablePerformedSet(db, setId);
         await db.sets.update(setId, { rpe, updatedAt: now() });
       });
     },
 
     async setComment(setId, text) {
-      await db.sets.update(setId, { comment: text.trim() || null, updatedAt: now() });
+      await db.transaction("rw", workoutTables(db), async () => {
+        await changeablePerformedSet(db, setId);
+        await db.sets.update(setId, { comment: text.trim() || null, updatedAt: now() });
+      });
     },
 
     async setPlan(workoutId, notation) {
       const lines = parsePlan(notation);
       await db.transaction("rw", [db.workouts, db.exercises, db.entries, db.sets], async () => {
-        const workout = await db.workouts.get(workoutId);
-        if (!workout || workout.deleted) throw new RangeError(`No Workout ${workoutId}`);
+        await changeableWorkout(db, workoutId);
         const entries = await liveEntriesOf(db, [workoutId]);
         const sets = await liveSetsOf(db, entries.map((e) => e.id));
         if (isPlanLocked(sets)) {
@@ -325,5 +369,5 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
 }
 
 function toWorkout(record: WorkoutRecord): Workout {
-  return { id: record.id, date: record.date };
+  return { id: record.id, date: record.date, finished: record.finished === true };
 }

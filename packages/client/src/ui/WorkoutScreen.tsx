@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { flushSync } from "react-dom";
 import type { LocalDate } from "@gymlog/shared";
 import type { Journal, WorkoutWithEntries } from "../journal/journal.ts";
@@ -23,12 +23,12 @@ function PlanButton({ workout, onOpen }: { workout: WorkoutWithEntries; onOpen: 
 
 /**
  * The Plan editor's starting point: an unfinished draft of the current Plan, or the Plan
- * itself; null when the Plan is locked. A draft of a Plan that has changed since would
- * hide the change, so it is dropped.
+ * itself; null when the Plan is locked or the Workout is Finished. A draft of a Plan that
+ * has changed since would hide the change, so it is dropped.
  */
 function draftFor(workoutId: string, workout: WorkoutWithEntries): PlanDraft | null {
   const stored = loadPlanDraft(workoutId);
-  if (workout.planLocked) {
+  if (workout.planLocked || workout.finished) {
     clearPlanDraft(workoutId);
     return null;
   }
@@ -49,6 +49,10 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
   const [exerciseName, setExerciseName] = useState("");
   /** What the Plan editor works on while it is open, and whether it opened from a tap. */
   const [planEditor, setPlanEditor] = useState<{ draft: PlanDraft; tapped: boolean } | null>(null);
+  /** Finishing or undoing it is under way, so a second tap does nothing. */
+  const [switching, setSwitching] = useState(false);
+  // Set at once, unlike state, so a second tap arriving before the next render is turned away.
+  const switchingNow = useRef(false);
 
   const reload = useCallback(async () => {
     const loaded = (await journal.getWorkout(workoutId)) ?? null;
@@ -84,6 +88,25 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
     await reload();
   }
 
+  async function switchFinished(finished: boolean) {
+    if (switchingNow.current) return;
+    switchingNow.current = true;
+    setSwitching(true);
+    try {
+      if (finished) {
+        setPlanEditor(null);
+        clearPlanDraft(workoutId);
+        await journal.finishWorkout(workoutId);
+      } else {
+        await journal.undoFinishing(workoutId);
+      }
+      await reload();
+    } finally {
+      switchingNow.current = false;
+      setSwitching(false);
+    }
+  }
+
   if (workout === undefined) return null;
 
   if (workout === null) {
@@ -103,7 +126,16 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
         {workout.date === today ? <span className="today">сегодня</span> : null}
       </h1>
 
-      {planEditor !== null ? (
+      {workout.finished ? (
+        <div className="finished-bar">
+          <p className="finished-text">
+            <strong>Тренировка завершена.</strong> Чтобы изменить или удалить её, отмените завершение.
+          </p>
+          <button className="button" type="button" onClick={() => void switchFinished(false)} disabled={switching}>
+            Отменить завершение
+          </button>
+        </div>
+      ) : planEditor !== null ? (
         <PlanEditor
           journal={journal}
           workoutId={workoutId}
@@ -117,36 +149,50 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
       )}
 
       {workout.entries.length === 0 ? (
-        <p className="empty">Напишите план или добавьте первое упражнение.</p>
+        <p className="empty">
+          {workout.finished ? "В тренировке ничего не записано." : "Напишите план или добавьте первое упражнение."}
+        </p>
       ) : (
         <ol className="entries">
           {workout.entries.map((entry) => (
-            <EntryCard key={entry.id} journal={journal} entry={entry} onChange={refresh} />
+            <EntryCard key={entry.id} journal={journal} entry={entry} finished={workout.finished} onChange={refresh} />
           ))}
         </ol>
       )}
 
-      <form className="add-entry" onSubmit={addEntry}>
-        <label className="field">
-          <span className="field-label">Упражнение</span>
-          <input
-            id="new-entry-exercise"
-            className="text-input"
-            type="text"
-            value={exerciseName}
-            onChange={(e) => setExerciseName(e.target.value)}
-            placeholder="например, bench press"
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="none"
-            spellCheck={false}
-            enterKeyHint="done"
-          />
-        </label>
-        <button className="button primary" type="submit" disabled={!exerciseName.trim()}>
-          Добавить
-        </button>
-      </form>
+      {workout.finished ? null : (
+        <form className="add-entry" onSubmit={addEntry}>
+          <label className="field">
+            <span className="field-label">Упражнение</span>
+            <input
+              id="new-entry-exercise"
+              className="text-input"
+              type="text"
+              value={exerciseName}
+              onChange={(e) => setExerciseName(e.target.value)}
+              placeholder="например, bench press"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              enterKeyHint="done"
+            />
+          </label>
+          <button className="button primary" type="submit" disabled={!exerciseName.trim()}>
+            Добавить
+          </button>
+        </form>
+      )}
+
+      {/* An empty Workout has nothing to declare recorded. */}
+      {workout.finished || workout.entries.length === 0 ? null : (
+        <div className="finish">
+          <button className="button" type="button" onClick={() => void switchFinished(true)} disabled={switching}>
+            Завершить тренировку
+          </button>
+          <p className="hint">Незаписанные подходы из плана будут отмечены как невыполненные. Завершение можно отменить.</p>
+        </div>
+      )}
     </main>
   );
 }

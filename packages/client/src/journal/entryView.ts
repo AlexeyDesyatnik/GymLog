@@ -1,10 +1,13 @@
 import type { EntryRecord, ExerciseRecord, SetRecord } from "@gymlog/shared";
 import type { Entry, Exercise, PerformedSet, PlannedSet, SetPair, SetValues } from "./journal.ts";
 
-/** An Entry as the UI reads it, with everything derived from its live Sets (given in order). */
-export function entryView(entry: EntryRecord, exercise: ExerciseRecord, sets: SetRecord[]): Entry {
+/**
+ * An Entry as the UI reads it, with everything derived from its live Sets (given in order)
+ * and whether its Workout is Finished.
+ */
+export function entryView(entry: EntryRecord, exercise: ExerciseRecord, sets: SetRecord[], finished: boolean): Entry {
   const { plannedSets, performedSets } = splitSets(sets);
-  const pairs = pairByOrder(plannedSets, performedSets);
+  const pairs = pairByOrder(plannedSets, performedSets, finished);
   return {
     id: entry.id,
     exercise: toExercise(exercise),
@@ -35,10 +38,12 @@ function toPlannedSet(record: SetRecord): PlannedSet {
   return { id: record.id, weight: record.weight, reps: record.reps, targetRpe: record.rpe };
 }
 
-export function pairByOrder(planned: PlannedSet[], performed: PerformedSet[]): SetPair[] {
+/** Pairs Planned and Performed Sets by order; in a Finished Workout, a Planned Set left unpaired is Not performed. */
+export function pairByOrder(planned: PlannedSet[], performed: PerformedSet[], finished: boolean): SetPair[] {
   return Array.from({ length: Math.max(planned.length, performed.length) }, (_, i) => ({
     planned: planned[i] ?? null,
     performed: performed[i] ?? null,
+    notPerformed: finished && planned[i] !== undefined && performed[i] === undefined,
   }));
 }
 

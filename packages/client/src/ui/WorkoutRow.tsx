@@ -78,19 +78,23 @@ export function WorkoutRow({ workout, today, onChangeDate, onDelete }: WorkoutRo
         <span className="workout-date">
           <span>{label}</span>
           {workout.date === today ? <span className="today">сегодня</span> : null}
+          {workout.finished ? <span className="finished-tag">завершена</span> : null}
         </span>
         {workout.exerciseNames.length > 0 ? (
           <span className="workout-exercises">{workout.exerciseNames.join(" · ")}</span>
         ) : null}
       </a>
-      <div className="actions">
-        <button className="button quiet" type="button" onClick={() => setMode("changing-date")}>
-          Изменить дату
-        </button>
-        <button className="button quiet" type="button" onClick={() => setMode("confirming-delete")}>
-          Удалить
-        </button>
-      </div>
+      {/* A Finished Workout is read-only: finishing is undone on its own screen first. */}
+      {workout.finished ? null : (
+        <div className="actions">
+          <button className="button quiet" type="button" onClick={() => setMode("changing-date")}>
+            Изменить дату
+          </button>
+          <button className="button quiet" type="button" onClick={() => setMode("confirming-delete")}>
+            Удалить
+          </button>
+        </div>
+      )}
     </li>
   );
 }

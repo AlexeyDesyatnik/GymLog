@@ -42,8 +42,8 @@ test("changing a Workout's date reschedules it", async () => {
   await journal.changeWorkoutDate(moved.id, localDate("2026-09-25"));
 
   expect(await journal.listWorkouts()).toEqual([
-    { id: moved.id, date: "2026-09-25", exerciseNames: [] },
-    { id: other.id, date: "2026-09-22", exerciseNames: [] },
+    { id: moved.id, date: "2026-09-25", exerciseNames: [], finished: false },
+    { id: other.id, date: "2026-09-22", exerciseNames: [], finished: false },
   ]);
 });
 
@@ -54,7 +54,7 @@ test("a deleted Workout is no longer listed", async () => {
 
   await journal.deleteWorkout(deleted.id);
 
-  expect(await journal.listWorkouts()).toEqual([{ id: kept.id, date: "2026-09-20", exerciseNames: [] }]);
+  expect(await journal.listWorkouts()).toEqual([{ id: kept.id, date: "2026-09-20", exerciseNames: [], finished: false }]);
 });
 
 test("Workouts survive closing and reopening the Journal", async () => {
@@ -67,7 +67,7 @@ test("Workouts survive closing and reopening the Journal", async () => {
 
   const reopened = openJournal({ name });
 
-  expect(await reopened.listWorkouts()).toEqual([{ id: kept.id, date: "2026-09-24", exerciseNames: [] }]);
+  expect(await reopened.listWorkouts()).toEqual([{ id: kept.id, date: "2026-09-24", exerciseNames: [], finished: false }]);
 });
 
 test("a listed Workout names the Exercises of its Plan, in Plan order", async () => {

@@ -8,10 +8,13 @@
   "scripts": {
     "dev": "npm run dev -w @gymlog/client",
     "build": "npm run build -w @gymlog/client",
-    "typecheck": "tsc -p packages/shared && tsc -p packages/client",
-    "test": "vitest run"
+    "typecheck": "tsc -p packages/shared && tsc -p packages/client && tsc -p packages/client/tsconfig.node.json && tsc -p e2e",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24.19.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
