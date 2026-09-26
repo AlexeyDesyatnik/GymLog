@@ -6,6 +6,7 @@ import { EntryCard } from "./EntryCard.tsx";
 import { formatWorkoutDate } from "./format.ts";
 import { PlanEditor } from "./PlanEditor.tsx";
 import { clearPlanDraft, loadPlanDraft, type PlanDraft } from "./planDraft.ts";
+import { StoreProblem } from "./StoreProblem.tsx";
 import { workoutsHref } from "./useRoute.ts";
 
 /**
@@ -68,6 +69,8 @@ interface WorkoutScreenProps {
 export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps) {
   /** undefined while loading, null when there is no such Workout. */
   const [workout, setWorkout] = useState<WorkoutWithEntries | null | undefined>(undefined);
+  /** Why the Workout couldn't be read, if it couldn't. */
+  const [readError, setReadError] = useState<string | null>(null);
   const [exerciseName, setExerciseName] = useState("");
   /** What the Plan editor works on while it is open, and whether it opened from a tap. */
   const [planEditor, setPlanEditor] = useState<{ draft: PlanDraft; tapped: boolean } | null>(null);
@@ -77,9 +80,14 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
   const switchingNow = useRef(false);
 
   const reload = useCallback(async () => {
-    const loaded = (await journal.getWorkout(workoutId)) ?? null;
-    setWorkout(loaded);
-    return loaded;
+    try {
+      const loaded = (await journal.getWorkout(workoutId)) ?? null;
+      setWorkout(loaded);
+      return loaded;
+    } catch (error) {
+      setReadError(String(error));
+      return null;
+    }
   }, [journal, workoutId]);
 
   const refresh = useCallback(async () => {
@@ -135,6 +143,8 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
   function undoFinishing() {
     return switchOnce(() => journal.undoFinishing(workoutId));
   }
+
+  if (readError !== null) return <StoreProblem problem={{ status: "failed", error: readError }} />;
 
   if (workout === undefined) return null;
 

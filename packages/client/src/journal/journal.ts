@@ -21,7 +21,10 @@ import {
   previousSubstitutesFor,
   recordableEntry,
   workoutTables,
+  type StoreState,
 } from "./store.ts";
+
+export type { StoreState };
 
 export interface Workout {
   id: string;
@@ -107,6 +110,10 @@ export interface WorkoutWithEntries extends Workout {
 
 /** The single interface the UI uses for everything a user does with their Workouts. */
 export interface Journal {
+  /** The state of the local store on this device; calls wait while it is opening or blocked. */
+  storeState(): StoreState;
+  /** Calls the listener on every change of the store's state; returns a function that stops it. */
+  onStoreStateChange(listener: () => void): () => void;
   createWorkout(date: LocalDate): Promise<Workout>;
   listWorkouts(): Promise<WorkoutSummary[]>;
   /** The Workout with its Entries, or undefined if there is no such Workout. */
@@ -166,7 +173,15 @@ export interface JournalOptions {
 }
 
 export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions = {}): Journal {
-  const db = openStore(name);
+  let storeState: StoreState = { status: "opening" };
+  const storeStateListeners = new Set<() => void>();
+  let closed = false;
+  const db = openStore(name, (state) => {
+    // Closing cancels the opening; that isn't a failure anyone needs to hear about.
+    if (closed) return;
+    storeState = state;
+    for (const listener of storeStateListeners) listener();
+  });
 
   /** The fields every new record starts with. */
   function newRecord(): SyncedRecord {
@@ -201,6 +216,13 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
   }
 
   return {
+    storeState: () => storeState,
+
+    onStoreStateChange(listener) {
+      storeStateListeners.add(listener);
+      return () => storeStateListeners.delete(listener);
+    },
+
     async createWorkout(date) {
       const record: WorkoutRecord = { ...newRecord(), date, createdAt: now(), finished: false };
       await db.workouts.add(record);
@@ -480,6 +502,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     },
 
     close() {
+      closed = true;
       db.close();
     },
   };

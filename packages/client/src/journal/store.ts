@@ -9,8 +9,23 @@ export type JournalDb = Dexie & {
   sets: EntityTable<SetRecord, "id">;
 };
 
-export function openStore(name: string): JournalDb {
-  const db = new Dexie(name) as JournalDb;
+/** The state of the local store on this device. */
+export type StoreState =
+  | { status: "opening" }
+  | { status: "ready" }
+  /** Upgrading the store waits for another open copy of the app, on older code, to let go of it. */
+  | { status: "blocked" }
+  /** Another copy of the app, on newer code, upgraded the store, so this copy closed it for good. */
+  | { status: "upgradedElsewhere" }
+  | { status: "failed"; error: string };
+
+/**
+ * Opens the store at once, reporting each change of its state. Calls wait while it is
+ * opening or blocked, and fail once it is closed: it is never reopened behind the user's
+ * back, since code older than the store may not fit it.
+ */
+export function openStore(name: string, onStateChange: (state: StoreState) => void): JournalDb {
+  const db = new Dexie(name, { autoOpen: false }) as JournalDb;
   db.version(1).stores({ workouts: "id, [date+createdAt]" });
   db.version(2).stores({
     workouts: "id, [date+createdAt]",
@@ -20,6 +35,13 @@ export function openStore(name: string): JournalDb {
   });
   // Only Substitutes carry the reference, so only they are in its index.
   db.version(3).stores({ entries: "id, workoutId, substitutesEntryId" });
+  db.on("blocked", () => onStateChange({ status: "blocked" }));
+  // Dexie closes the store itself here, to let the upgrade go ahead.
+  db.on("versionchange", () => onStateChange({ status: "upgradedElsewhere" }));
+  db.open().then(
+    () => onStateChange({ status: "ready" }),
+    (error: unknown) => onStateChange({ status: "failed", error: String(error) }),
+  );
   return db;
 }
 

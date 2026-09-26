@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { localDate, localDateOf, type LocalDate } from "@gymlog/shared";
 import type { Journal, WorkoutSummary } from "../journal/journal.ts";
+import { StoreProblem } from "./StoreProblem.tsx";
 import { WorkoutRow } from "./WorkoutRow.tsx";
 
 export function WorkoutListScreen({ journal, today }: { journal: Journal; today: LocalDate }) {
   const [workouts, setWorkouts] = useState<WorkoutSummary[] | null>(null);
+  /** Why the Workouts couldn't be read, if they couldn't. */
+  const [readError, setReadError] = useState<string | null>(null);
   /** The date the user picked for a new Workout; until they pick one, it's today. */
   const [chosenDate, setChosenDate] = useState<string | null>(null);
   const newDate = chosenDate ?? today;
 
   const reload = useCallback(async () => {
-    setWorkouts(await journal.listWorkouts());
+    try {
+      setWorkouts(await journal.listWorkouts());
+    } catch (error) {
+      setReadError(String(error));
+    }
   }, [journal]);
 
   useEffect(() => {
@@ -24,6 +31,8 @@ export function WorkoutListScreen({ journal, today }: { journal: Journal; today:
     await journal.createWorkout(localDate(date));
     await reload();
   }
+
+  if (readError !== null) return <StoreProblem problem={{ status: "failed", error: readError }} />;
 
   return (
     <main className="page">
