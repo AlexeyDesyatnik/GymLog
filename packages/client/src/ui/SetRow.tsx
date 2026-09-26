@@ -103,6 +103,8 @@ export function SetRow({ journal, set, planned, beyondPlan, deletable, number, o
 
   const showComment = commenting || comment.trim() !== "";
   const shownWeight = set.weight === null ? null : showNumber(set.weight);
+  // What the Plan aimed for, so the RPE picker can show it once the Set is done.
+  const targetRpe = planned?.targetRpe ?? null;
   // Done as planned needs no note; a difference shows what the Plan said.
   const offPlan = planned !== null && (planned.weight !== set.weight || planned.reps !== set.reps);
 
@@ -216,9 +218,10 @@ export function SetRow({ journal, set, planned, beyondPlan, deletable, number, o
           {RPE_SCALE.map((value) => (
             <button
               key={value}
-              className={`rpe-option${set.rpe === value ? " selected" : ""}`}
+              className={`rpe-option${set.rpe === value ? " selected" : ""}${targetRpe === value ? " target" : ""}`}
               type="button"
               onClick={() => void chooseRpe(value)}
+              aria-label={targetRpe === value ? `${showRpe(value)}, цель` : undefined}
             >
               {showRpe(value)}
             </button>

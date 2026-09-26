@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { parsePlan, type PlanLineProblem } from "@gymlog/shared";
 import type { Journal } from "../journal/journal.ts";
-import { showNumber } from "./numbers.ts";
+import { showNumber, showRpe } from "./numbers.ts";
 import { clearPlanDraft, savePlanDraft, type PlanDraft } from "./planDraft.ts";
 
 interface PlanEditorProps {
@@ -96,6 +96,7 @@ export function PlanEditor({ journal, workoutId, draft, focusOnOpen, onClose, on
                     <span key={j} className="plan-chip">
                       {g.weight === null ? "без веса" : `${showNumber(g.weight)} кг`} × {g.reps}
                       {g.sets > 1 ? ` × ${g.sets} подх.` : ""}
+                      {g.targetRpe === null ? "" : `, цель RPE ${showRpe(g.targetRpe)}`}
                     </span>
                   ))}
                 </span>

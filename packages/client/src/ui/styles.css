@@ -449,6 +449,11 @@ a.workout-link {
   color: var(--accent-ink);
 }
 
+/* The Plan's Target RPE for this Set, outlined like the next Set it was shown on. */
+.rpe-option.target {
+  border: 2px dashed var(--accent);
+}
+
 .rpe-option.clear {
   grid-column: span 2;
   color: var(--muted);
