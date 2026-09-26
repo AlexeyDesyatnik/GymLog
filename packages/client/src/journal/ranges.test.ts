@@ -78,7 +78,7 @@ test("a Planned Set with a Rep range can't be Confirmed: the Reps done are recor
 });
 
 /** The numbers the next Performed Set starts from, as [weight, reps]. */
-async function nextSetOf(read: () => Promise<Entry>) {
+async function nextSetValues(read: () => Promise<Entry>) {
   const { nextSet } = await read();
   return nextSet && [nextSet.weight, nextSet.reps];
 }
@@ -86,7 +86,7 @@ async function nextSetOf(read: () => Promise<Entry>) {
 test("the first Set of a Rep range group starts from the planned weight and no reps", async () => {
   const { read } = await plannedEntry("bicep curl 15x10-12x3");
 
-  expect(await nextSetOf(read)).toEqual([15, null]);
+  expect(await nextSetValues(read)).toEqual([15, null]);
 });
 
 test("a later Set of the same Rep range group starts from the reps of the Set before it", async () => {
@@ -94,7 +94,7 @@ test("a later Set of the same Rep range group starts from the reps of the Set be
 
   await journal.addPerformedSet(entry.id, { weight: 15, reps: 11 });
 
-  expect(await nextSetOf(read)).toEqual([15, 11]);
+  expect(await nextSetValues(read)).toEqual([15, 11]);
 });
 
 test("a changed weight carries into the rest of a Rep range group, with the reps of the Set before", async () => {
@@ -102,7 +102,7 @@ test("a changed weight carries into the rest of a Rep range group, with the reps
 
   await journal.addPerformedSet(entry.id, { weight: 17.5, reps: 10 });
 
-  expect(await nextSetOf(read)).toEqual([17.5, 10]);
+  expect(await nextSetValues(read)).toEqual([17.5, 10]);
 });
 
 test("the first Set of the next Rep range group starts from no reps again", async () => {
@@ -110,7 +110,7 @@ test("the first Set of the next Rep range group starts from no reps again", asyn
 
   await journal.addPerformedSet(entry.id, { weight: 15, reps: 11 });
 
-  expect(await nextSetOf(read)).toEqual([12.5, null]);
+  expect(await nextSetValues(read)).toEqual([12.5, null]);
 });
 
 test("a Rep range group after a single-count group starts from no reps", async () => {
@@ -118,7 +118,7 @@ test("a Rep range group after a single-count group starts from no reps", async (
 
   await journal.addPerformedSet(entry.id, { weight: 15, reps: 10 });
 
-  expect(await nextSetOf(read)).toEqual([15, null]);
+  expect(await nextSetValues(read)).toEqual([15, null]);
 });
 
 test("a Performed Set at the planned weight with Reps within the Rep range is done as planned", async () => {

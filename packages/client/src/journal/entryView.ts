@@ -66,10 +66,10 @@ function nextSetOf(pairs: SetPair[]): NextSet | null {
     const previous = pairs[nextIndex - 1];
     const done =
       previous?.planned && previous.performed ? { planned: previous.planned, performed: previous.performed } : null;
-    // A weight changed from the Plan carries on to Planned Sets of the same planned weight;
-    // the reps stay the Plan's.
+    // A weight changed from the Plan carries on to Planned Sets of the same planned weight.
     const sameWeight = done !== null && done.planned.weight === next.weight;
     const weight = sameWeight ? done.performed.weight : next.weight;
+    // A single planned count is the reps to start from, whatever was done before.
     if (next.maxReps === null) return { weight, reps: next.reps };
     // A Rep range's reps are the user's to give; later Sets of its group repeat the Set before.
     const sameRange = sameWeight && done.planned.reps === next.reps && done.planned.maxReps === next.maxReps;

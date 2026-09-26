@@ -39,7 +39,7 @@ export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps
   // The next Planned Set's own numbers, typed or not, confirm it; other numbers, or any with a
   // Rep range, record it as performed. Either way the button reads "✓ Сделано" while a Planned
   // Set is next.
-  const asPlanned =
+  const confirms =
     nextPlanned !== undefined &&
     nextPlanned.maxReps === null &&
     parsedWeight.ok &&
@@ -63,7 +63,7 @@ export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps
     savingNow.current = true;
     setSaving(true);
     try {
-      if (asPlanned) await journal.confirmPlannedSet(entry.id);
+      if (confirms) await journal.confirmPlannedSet(entry.id);
       else await journal.addPerformedSet(entry.id, { weight: parsedWeight.value, reps: parsedReps.value });
       setTyped(null);
       await onChange();
