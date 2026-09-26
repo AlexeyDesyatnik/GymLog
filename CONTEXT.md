@@ -72,7 +72,7 @@ Rate of perceived exertion for a performed Set, one of: below 5, 5, 6, 7, 7.5, 8
 _Avoid_: RIR
 
 **Target RPE** (целевой RPE):
-The RPE a Plan aims for on the first Set of a group, so the Weight of the Sets after it can be adjusted by feel (target first-Set RPE). One of 5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10. A guide only: it is never recorded as a performed Set's RPE.
+The RPE a Plan aims for on the first Set of a group, one of 5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10. A guide for adjusting the Weight by feel, never recorded as a performed Set's RPE.
 _Avoid_: Planned RPE, RPE target
 
 **Comment** (комментарий):

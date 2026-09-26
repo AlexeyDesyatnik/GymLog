@@ -295,7 +295,12 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
 
     async setRpe(setId, rpe) {
       checkRpe(rpe);
-      await db.sets.update(setId, { rpe, updatedAt: now() });
+      await db.transaction("rw", db.sets, async () => {
+        // A Planned Set's record holds its Target RPE in the same place; the Plan notation changes that.
+        const set = await db.sets.get(setId);
+        if (!set || set.deleted || set.kind !== "performed") throw new RangeError(`No Performed Set ${setId}`);
+        await db.sets.update(setId, { rpe, updatedAt: now() });
+      });
     },
 
     async setComment(setId, text) {
@@ -329,18 +334,18 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
           const entry: EntryRecord = { ...newRecord(), workoutId, exerciseId: exercise.id, position: position++ };
           await db.entries.add(entry);
           // A group's Target RPE is for its first Set.
-          const plannedSets = line.groups.flatMap((g) =>
-            Array.from({ length: g.sets }, (_, i) => ({ ...g, targetRpe: i === 0 ? g.targetRpe : null })),
+          const plannedSets = line.groups.flatMap(({ weight, reps, sets, targetRpe }) =>
+            Array.from({ length: sets }, (_, i) => ({ weight, reps, targetRpe: i === 0 ? targetRpe : null })),
           );
           await db.sets.bulkAdd(
-            plannedSets.map((g, i): SetRecord => ({
+            plannedSets.map((set, i): SetRecord => ({
               ...newRecord(),
               entryId: entry.id,
               kind: "planned",
               position: i,
-              weight: g.weight,
-              reps: g.reps,
-              rpe: g.targetRpe,
+              weight: set.weight,
+              reps: set.reps,
+              rpe: set.targetRpe,
               comment: null,
             })),
           );

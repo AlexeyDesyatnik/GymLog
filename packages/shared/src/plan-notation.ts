@@ -23,7 +23,7 @@ export type PlanLineProblem =
   | "broken-group"
   /** A Planned Set needs at least 1 rep, and a group at least 1 set. */
   | "zero-reps-or-sets"
-  /** A Target RPE off TARGET_RPE_SCALE, or an "@" not right after a group. */
+  /** A Target RPE off TARGET_RPE_SCALE, or one not right after a group. */
   | "bad-target-rpe";
 
 export type PlanLine =
@@ -57,6 +57,10 @@ const SPACE_BEFORE_SEP = new RegExp(`(\\d)\\s+(${SEP})(?=\\d)`, "g");
  */
 const RPE_MARK = /\s*(?:@|(?<!\p{L})(?:rpe|рпе))\s*(?=\d)/giu;
 
+/** An "@" touching a digit or standing alone, or a bare RPE word ending the line: a misplaced Target RPE. */
+const STRAY_RPE_MARK = /(^|\d)@|@(\d|$)/;
+const BARE_RPE_WORD = /^(?:rpe|рпе)$/iu;
+
 /** Every non-empty line of a Plan, read one by one. */
 export function parsePlan(notation: string): PlanLine[] {
   return notation
@@ -72,6 +76,7 @@ export function parsePlanLine(line: string): PlanLine {
     .replace(SPACED_SEP_BETWEEN_DIGITS, "$1$2")
     .replace(SPACE_BEFORE_SEP, "$1$2");
   const tokens = joined.trim().split(/\s+/);
+  if (BARE_RPE_WORD.test(tokens.at(-1) ?? "")) return { ok: false, problem: "bad-target-rpe" };
   const groups: PlanGroup[] = [];
   // Groups are recognised from the end of the line; whatever is left is the name.
   for (let match = GROUP.exec(tokens.at(-1) ?? ""); match; match = GROUP.exec(tokens.at(-1) ?? "")) {
@@ -83,7 +88,7 @@ export function parsePlanLine(line: string): PlanLine {
       targetRpe: match[4] ? Number(match[4].replace(",", ".")) : null,
     });
   }
-  if (tokens.some((token) => token.includes("@"))) return { ok: false, problem: "bad-target-rpe" };
+  if (tokens.some((token) => STRAY_RPE_MARK.test(token))) return { ok: false, problem: "bad-target-rpe" };
   if (groups.length === 0) return { ok: false, problem: "no-groups" };
   if (tokens.length === 0 || tokens.join("") === "") return { ok: false, problem: "no-name" };
   if (tokens.some((token) => GROUP_FRAGMENT.test(token))) return { ok: false, problem: "broken-group" };
@@ -116,7 +121,12 @@ export function formatPlanSets(sets: PlannedSetValues[]): string {
 }
 
 function formatGroup({ weight, reps, sets, targetRpe }: PlanGroup): string {
-  const shownWeight = weight === null ? "" : String(weight).replace(".", ",");
-  const shownRpe = targetRpe === null ? "" : `@${String(targetRpe).replace(".", ",")}`;
+  const shownWeight = weight === null ? "" : withComma(weight);
+  const shownRpe = targetRpe === null ? "" : `@${withComma(targetRpe)}`;
   return `${shownWeight}x${reps}${sets > 1 ? `x${sets}` : ""}${shownRpe}`;
+}
+
+/** 82.5 → "82,5": numbers in Plan notation use a decimal comma. */
+function withComma(value: number): string {
+  return String(value).replace(".", ",");
 }

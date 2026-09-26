@@ -290,8 +290,16 @@ test.each([
   expect((await journal.getWorkout(workout.id))!.planNotation).toBe(readBack);
 });
 
-test.each(["squat 100x5x3@6.5", "squat 100x5x3@4", "squat 100x5x3@11", "squat 100x5x3@", "squat 100x5x3@7@8"])(
-  "%j has a Target RPE off the list and isn't understood",
+test.each([
+  "squat 100x5x3@6.5",
+  "squat 100x5x3@4",
+  "squat 100x5x3@11",
+  "squat 100x5x3@",
+  "squat 100x5x3@7@8",
+  "squat @7 100x5x3",
+  "squat 100x5x3 rpe",
+])(
+  "%j has a Target RPE off the list or out of place and isn't understood",
   async (line) => {
     const { journal, workout } = await journalWithWorkout();
 
@@ -312,4 +320,21 @@ test.each([
   await journal.setPlan(workout.id, typed);
 
   expect((await journal.getWorkout(workout.id))!.planNotation).toBe(readBack);
+});
+
+test("a Planned Set's Target RPE can't be changed as if it were a Performed Set's RPE", async () => {
+  const { journal, workout } = await journalWithWorkout();
+  await journal.setPlan(workout.id, "squat 100x5x3@7");
+  const [planned] = (await journal.getWorkout(workout.id))!.entries[0]!.plannedSets;
+
+  await expect(journal.setRpe(planned!.id, 4)).rejects.toThrow();
+  expect((await journal.getWorkout(workout.id))!.planNotation).toBe("squat 100x5x3@7");
+});
+
+test("an @ inside an Exercise name, away from digits, stays part of the name", async () => {
+  const { journal, workout } = await journalWithWorkout();
+
+  await journal.setPlan(workout.id, "жим@лёжа 80x5");
+
+  expect(await planOf(journal, workout.id)).toEqual([["жим@лёжа", [[80, 5]]]]);
 });
