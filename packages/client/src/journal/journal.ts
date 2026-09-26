@@ -378,9 +378,11 @@ function nextSetOf(pairs: SetPair[]): SetValues | null {
     // A weight changed from the Plan carries on to Planned Sets of the same planned weight;
     // the reps stay the Plan's.
     const previous = pairs[nextIndex - 1];
-    const changedWeight =
-      previous && previous.planned!.weight === next.weight && previous.performed!.weight !== next.weight;
-    return { weight: changedWeight ? previous.performed!.weight : next.weight, reps: next.reps };
+    const carried =
+      previous?.planned && previous.performed && previous.planned.weight === next.weight
+        ? previous.performed.weight
+        : next.weight;
+    return { weight: carried, reps: next.reps };
   }
   // Past the Plan, or with none, repeating the previous Set is one tap.
   const previous = pairs.at(-1)?.performed;

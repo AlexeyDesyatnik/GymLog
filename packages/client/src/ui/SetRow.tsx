@@ -11,7 +11,7 @@ interface SetRowProps {
   set: PerformedSet;
   /** The Planned Set this one is paired with, if any. */
   planned: PlannedSet | null;
-  /** An extra Set in an Entry with a Plan: past its planned count. */
+  /** In an Entry with a Plan, a Performed Set beyond the planned count. */
   beyondPlan: boolean;
   number: number;
   onChange: () => Promise<void>;
