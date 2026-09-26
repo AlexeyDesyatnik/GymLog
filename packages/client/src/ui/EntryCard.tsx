@@ -28,7 +28,8 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
   const prefilled = typing === null && suggestion !== null;
   const parsedWeight = parseWeight(weight);
   const parsedReps = parseReps(reps);
-  // The next Planned Set's own numbers, typed or not, record it as done as planned.
+  // The next Planned Set's own numbers, typed or not, confirm it; other numbers record it as
+  // performed differently. Either way the button reads "✓ Сделано" while a Planned Set is next.
   const asPlanned =
     nextPlanned !== undefined &&
     parsedWeight.ok &&
@@ -141,7 +142,7 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
           aria-invalid={reps !== "" && !parsedReps.ok}
         />
         <button className="button primary" type="submit" disabled={!parsedWeight.ok || !parsedReps.ok || saving}>
-          {asPlanned ? "✓ Сделано" : "+ Подход"}
+          {nextPlanned ? "✓ Сделано" : "+ Подход"}
         </button>
       </form>
 
