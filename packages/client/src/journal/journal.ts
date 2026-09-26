@@ -1,7 +1,8 @@
-import { Dexie, type EntityTable } from "dexie";
 import { checkRpe, checkSetValues, exerciseNameKey, formatPlanLine, parsePlan, type PlanLine } from "@gymlog/shared";
 import type { EntryRecord, ExerciseRecord, LocalDate, SetRecord, SyncedRecord, WorkoutRecord } from "@gymlog/shared";
+import { entryView, isPlanLocked, pairByOrder, splitSets, toExercise, toPerformedSet } from "./entryView.ts";
 import { newId } from "./ids.ts";
+import { liveEntriesOf, liveSetsOf, openStore } from "./store.ts";
 
 export interface Workout {
   id: string;
@@ -105,22 +106,8 @@ export interface JournalOptions {
   now?: () => number;
 }
 
-type JournalDb = Dexie & {
-  workouts: EntityTable<WorkoutRecord, "id">;
-  exercises: EntityTable<ExerciseRecord, "id">;
-  entries: EntityTable<EntryRecord, "id">;
-  sets: EntityTable<SetRecord, "id">;
-};
-
 export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions = {}): Journal {
-  const db = new Dexie(name) as JournalDb;
-  db.version(1).stores({ workouts: "id, [date+createdAt]" });
-  db.version(2).stores({
-    workouts: "id, [date+createdAt]",
-    exercises: "id, *nameKeys",
-    entries: "id, workoutId",
-    sets: "id, entryId",
-  });
+  const db = openStore(name);
 
   /** The fields every new record starts with. */
   function newRecord(): SyncedRecord {
@@ -135,20 +122,6 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     const created: ExerciseRecord = { ...newRecord(), primaryName: name.trim(), alternativeNames: [], nameKeys: [key] };
     await db.exercises.add(created);
     return created;
-  }
-
-  /** The live Entries of these Workouts, in Entry order. */
-  async function liveEntriesOf(workoutIds: string[]): Promise<EntryRecord[]> {
-    return (await db.entries.where("workoutId").anyOf(workoutIds).toArray())
-      .filter((e) => !e.deleted)
-      .sort((a, b) => a.position - b.position);
-  }
-
-  /** The live Sets of these Entries, in order. */
-  async function liveSetsOf(entryIds: string[]): Promise<SetRecord[]> {
-    return (await db.sets.where("entryId").anyOf(entryIds).toArray())
-      .filter((s) => !s.deleted)
-      .sort((a, b) => a.position - b.position);
   }
 
   /** Adds a Performed Set after the Entry's other Sets; call it inside a transaction on the Sets. */
@@ -177,7 +150,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
 
     async listWorkouts() {
       const records = (await db.workouts.orderBy("[date+createdAt]").reverse().toArray()).filter((r) => !r.deleted);
-      const entries = await liveEntriesOf(records.map((r) => r.id));
+      const entries = await liveEntriesOf(db, records.map((r) => r.id));
       const exercises = await db.exercises.bulkGet(entries.map((e) => e.exerciseId));
       return records.map((record) => {
         // Keyed by Exercise, so each is named once, where it first appears.
@@ -192,22 +165,12 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     async getWorkout(id) {
       const workout = await db.workouts.get(id);
       if (!workout || workout.deleted) return undefined;
-      const entries = await liveEntriesOf([id]);
+      const entries = await liveEntriesOf(db, [id]);
       const exercises = await db.exercises.bulkGet(entries.map((e) => e.exerciseId));
-      const sets = await liveSetsOf(entries.map((e) => e.id));
-      const views: Entry[] = entries.map((entry, i) => {
-        const plannedSets = sets.filter((s) => s.entryId === entry.id && s.kind === "planned").map(toPlannedSet);
-        const performedSets = sets.filter((s) => s.entryId === entry.id && s.kind === "performed").map(toPerformedSet);
-        const pairs = pairByOrder(plannedSets, performedSets);
-        return {
-          id: entry.id,
-          exercise: toExercise(exercises[i]!),
-          plannedSets,
-          performedSets,
-          pairs,
-          nextSet: nextSetOf(pairs),
-        };
-      });
+      const sets = await liveSetsOf(db, entries.map((e) => e.id));
+      const views = entries.map((entry, i) =>
+        entryView(entry, exercises[i]!, sets.filter((s) => s.entryId === entry.id)),
+      );
       return {
         ...toWorkout(workout),
         entries: views,
@@ -265,11 +228,9 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
 
     async confirmPlannedSet(entryId) {
       return db.transaction("rw", db.sets, async () => {
-        const sets = await liveSetsOf([entryId]);
-        const next = pairByOrder(
-          sets.filter((s) => s.kind === "planned").map(toPlannedSet),
-          sets.filter((s) => s.kind === "performed").map(toPerformedSet),
-        ).find((pair) => pair.performed === null)?.planned;
+        const sets = await liveSetsOf(db, [entryId]);
+        const { plannedSets, performedSets } = splitSets(sets);
+        const next = pairByOrder(plannedSets, performedSets).find((pair) => pair.performed === null)?.planned;
         if (!next) throw new RangeError(`No Planned Set left to perform in Entry ${entryId}`);
         return recordPerformedSet(entryId, { weight: next.weight, reps: next.reps });
       });
@@ -285,7 +246,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         const set = await db.sets.get(setId);
         if (!set || set.deleted || set.kind !== "performed") throw new RangeError(`No Performed Set ${setId}`);
         // Deleting from the middle would re-pair every Set after it with another Planned Set.
-        const last = (await liveSetsOf([set.entryId])).filter((s) => s.kind === "performed").at(-1);
+        const last = (await liveSetsOf(db, [set.entryId])).filter((s) => s.kind === "performed").at(-1);
         if (last?.id !== setId) {
           throw new RangeError(`Performed Set ${setId} isn't the last of its Entry, and only the last can be deleted`);
         }
@@ -312,8 +273,8 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       await db.transaction("rw", [db.workouts, db.exercises, db.entries, db.sets], async () => {
         const workout = await db.workouts.get(workoutId);
         if (!workout || workout.deleted) throw new RangeError(`No Workout ${workoutId}`);
-        const entries = await liveEntriesOf([workoutId]);
-        const sets = await liveSetsOf(entries.map((e) => e.id));
+        const entries = await liveEntriesOf(db, [workoutId]);
+        const sets = await liveSetsOf(db, entries.map((e) => e.id));
         if (isPlanLocked(sets)) {
           throw new RangeError("The Plan can't be changed once the Workout has Performed Sets");
         }
@@ -365,46 +326,4 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
 
 function toWorkout(record: WorkoutRecord): Workout {
   return { id: record.id, date: record.date };
-}
-
-function toExercise(record: ExerciseRecord): Exercise {
-  return { id: record.id, primaryName: record.primaryName };
-}
-
-function toPerformedSet(record: SetRecord): PerformedSet {
-  return { id: record.id, weight: record.weight, reps: record.reps, rpe: record.rpe, comment: record.comment };
-}
-
-function toPlannedSet(record: SetRecord): PlannedSet {
-  return { id: record.id, weight: record.weight, reps: record.reps, targetRpe: record.rpe };
-}
-
-function pairByOrder(planned: PlannedSet[], performed: PerformedSet[]): SetPair[] {
-  return Array.from({ length: Math.max(planned.length, performed.length) }, (_, i) => ({
-    planned: planned[i] ?? null,
-    performed: performed[i] ?? null,
-  }));
-}
-
-function nextSetOf(pairs: SetPair[]): SetValues | null {
-  const nextIndex = pairs.findIndex((pair) => pair.performed === null);
-  const next = pairs[nextIndex]?.planned;
-  if (next) {
-    // A weight changed from the Plan carries on to Planned Sets of the same planned weight;
-    // the reps stay the Plan's.
-    const previous = pairs[nextIndex - 1];
-    const carried =
-      previous?.planned && previous.performed && previous.planned.weight === next.weight
-        ? previous.performed.weight
-        : next.weight;
-    return { weight: carried, reps: next.reps };
-  }
-  // Past the Plan, or with none, repeating the previous Set is one tap.
-  const previous = pairs.at(-1)?.performed;
-  return previous ? { weight: previous.weight, reps: previous.reps } : null;
-}
-
-/** Re-editing a Plan with recorded Sets needs reconciliation, which comes in a later ticket. */
-function isPlanLocked(sets: SetRecord[]): boolean {
-  return sets.some((s) => s.kind === "performed");
 }
