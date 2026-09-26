@@ -124,3 +124,64 @@ test("deleting a confirmed Set leaves a Planned Set unpaired again, since pairin
     [[70, 8], null],
   ]);
 });
+
+/** The numbers the next Performed Set starts from, as [weight, reps]. */
+function nextSetOf(entry: Entry) {
+  return entry.nextSet && [entry.nextSet.weight, entry.nextSet.reps];
+}
+
+test("the next Set starts from the next Planned Set", async () => {
+  const { journal, entry, read } = await plannedEntry("bench press 80x5 70x8");
+
+  const before = nextSetOf(await read());
+  await journal.confirmPlannedSet(entry.id);
+
+  expect([before, nextSetOf(await read())]).toEqual([
+    [80, 5],
+    [70, 8],
+  ]);
+});
+
+test("with no Planned Set left, the next Set starts from the previous one, and from nothing at first", async () => {
+  const journal = freshJournal();
+  const workout = await journal.createWorkout(localDate("2026-09-26"));
+  const entry = await journal.addEntry(workout.id, "pull-up");
+  const read = async () => (await journal.getWorkout(workout.id))!.entries[0]!;
+
+  const atFirst = nextSetOf(await read());
+  await journal.addPerformedSet(entry.id, { weight: null, reps: 8 });
+
+  expect([atFirst, nextSetOf(await read())]).toEqual([null, [null, 8]]);
+});
+
+test("after the Plan is done, an extra Set starts from the previous Set", async () => {
+  const { journal, entry, read } = await plannedEntry("bench press 80x5");
+  await journal.addPerformedSet(entry.id, { weight: 80, reps: 4 });
+
+  expect(nextSetOf(await read())).toEqual([80, 4]);
+});
+
+test("a weight that differs from the Plan carries into the next Planned Set, with its planned reps", async () => {
+  const { journal, entry, read } = await plannedEntry("bench press 80x5x3");
+
+  await journal.addPerformedSet(entry.id, { weight: 82.5, reps: 4 });
+
+  expect(nextSetOf(await read())).toEqual([82.5, 5]);
+});
+
+test("a changed weight doesn't carry into a Planned Set with a different planned weight", async () => {
+  const { journal, entry, read } = await plannedEntry("bench press 80x5 70x8");
+
+  await journal.addPerformedSet(entry.id, { weight: 82.5, reps: 5 });
+
+  expect(nextSetOf(await read())).toEqual([70, 8]);
+});
+
+test("a changed weight keeps carrying on while the Sets after it use it", async () => {
+  const { journal, entry, read } = await plannedEntry("bench press 80x5x3");
+  await journal.addPerformedSet(entry.id, { weight: 82.5, reps: 5 });
+
+  await journal.addPerformedSet(entry.id, { weight: 82.5, reps: 4 });
+
+  expect(nextSetOf(await read())).toEqual([82.5, 5]);
+});

@@ -50,6 +50,8 @@ export interface Entry {
   performedSets: PerformedSet[];
   /** Planned and Performed Sets paired by order: every Set of the Entry is in exactly one pair. */
   pairs: SetPair[];
+  /** The numbers the next Performed Set starts from (number prefill), or null when there are none. */
+  nextSet: SetValues | null;
 }
 
 export interface WorkoutWithEntries extends Workout {
@@ -194,12 +196,14 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       const views: Entry[] = entries.map((entry, i) => {
         const plannedSets = sets.filter((s) => s.entryId === entry.id && s.kind === "planned").map(toPlannedSet);
         const performedSets = sets.filter((s) => s.entryId === entry.id && s.kind === "performed").map(toPerformedSet);
+        const pairs = pairByOrder(plannedSets, performedSets);
         return {
           id: entry.id,
           exercise: toExercise(exercises[i]!),
           plannedSets,
           performedSets,
-          pairs: pairByOrder(plannedSets, performedSets),
+          pairs,
+          nextSet: nextSetOf(pairs),
         };
       });
       return {
@@ -228,7 +232,14 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         const count = await db.entries.where("workoutId").equals(workoutId).count();
         const entry: EntryRecord = { ...newRecord(), workoutId, exerciseId: exercise.id, position: count };
         await db.entries.add(entry);
-        return { id: entry.id, exercise: toExercise(exercise), plannedSets: [], performedSets: [], pairs: [] };
+        return {
+          id: entry.id,
+          exercise: toExercise(exercise),
+          plannedSets: [],
+          performedSets: [],
+          pairs: [],
+          nextSet: null,
+        };
       });
     },
 
@@ -358,6 +369,22 @@ function pairByOrder(planned: PlannedSet[], performed: PerformedSet[]): SetPair[
     planned: planned[i] ?? null,
     performed: performed[i] ?? null,
   }));
+}
+
+function nextSetOf(pairs: SetPair[]): SetValues | null {
+  const nextIndex = pairs.findIndex((pair) => pair.performed === null);
+  const next = pairs[nextIndex]?.planned;
+  if (next) {
+    // A weight changed from the Plan carries on to Planned Sets of the same planned weight;
+    // the reps stay the Plan's.
+    const previous = pairs[nextIndex - 1];
+    const changedWeight =
+      previous && previous.planned!.weight === next.weight && previous.performed!.weight !== next.weight;
+    return { weight: changedWeight ? previous.performed!.weight : next.weight, reps: next.reps };
+  }
+  // Past the Plan, or with none, repeating the previous Set is one tap.
+  const previous = pairs.at(-1)?.performed;
+  return previous ? { weight: previous.weight, reps: previous.reps } : null;
 }
 
 /** Re-editing a Plan with recorded Sets needs reconciliation, which comes in a later ticket. */

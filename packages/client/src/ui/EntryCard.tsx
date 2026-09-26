@@ -15,15 +15,14 @@ interface EntryCardProps {
 export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
   const performedPairs = entry.pairs.filter((pair) => pair.performed !== null);
   const [nextPlanned, ...laterPlanned] = entry.pairs.flatMap((pair) => (pair.performed ? [] : [pair.planned!]));
-  // The next Set starts from the next Planned Set, or else from the previous Set, so doing
-  // it as planned, or repeating a Set, is one tap.
-  const suggestion = nextPlanned ?? entry.performedSets.at(-1) ?? null;
+  const suggestion = entry.nextSet;
   /**
-   * What the user typed over the suggestion (number prefill), and which suggestion it was
-   * typed over: once that Set is recorded or deleted, the typing no longer applies.
+   * What the user typed over the suggestion (number prefill), and for which Set number:
+   * once that Set is recorded or one is deleted, the typing no longer applies.
    */
-  const [typed, setTyped] = useState<{ over: string | null; weight: string; reps: string } | null>(null);
-  const typing = typed !== null && typed.over === (suggestion?.id ?? null) ? typed : null;
+  const [typed, setTyped] = useState<{ number: number; weight: string; reps: string } | null>(null);
+  const nextNumber = performedPairs.length + 1;
+  const typing = typed !== null && typed.number === nextNumber ? typed : null;
   const weight = typing?.weight ?? (suggestion ? showNumber(suggestion.weight) : "");
   const reps = typing?.reps ?? (suggestion ? String(suggestion.reps) : "");
   const prefilled = typing === null && suggestion !== null;
@@ -40,10 +39,10 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
   // Set at once, unlike state, so a second tap arriving before the next render is turned away.
   const savingNow = useRef(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const planned = entry.plannedSets.length > 0;
+  const hasPlan = entry.plannedSets.length > 0;
 
   function type(values: { weight: string; reps: string }) {
-    setTyped({ over: suggestion?.id ?? null, ...values });
+    setTyped({ number: nextNumber, ...values });
   }
 
   async function addSet(event: FormEvent) {
@@ -85,13 +84,13 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
       <div className="entry-head">
         <h2 className="entry-name">{entry.exercise.primaryName}</h2>
         {/* An Entry from the Plan is removed by editing the Plan notation. */}
-        {planned ? null : (
+        {hasPlan ? null : (
           <button className="button quiet muted-text" type="button" onClick={() => setConfirmingDelete(true)}>
             Удалить
           </button>
         )}
       </div>
-      {planned ? (
+      {hasPlan ? (
         <p className="entry-plan">
           <span className="entry-plan-label">План</span> {formatPlanSets(entry.plannedSets)}
         </p>
@@ -105,6 +104,7 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
               journal={journal}
               set={performed!}
               planned={planned}
+              beyondPlan={hasPlan && planned === null}
               number={i + 1}
               onChange={onChange}
             />
@@ -114,7 +114,7 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
 
       <form className="add-set" onSubmit={addSet}>
         <span className="set-number" aria-hidden="true">
-          {performedPairs.length + 1}
+          {nextNumber}
         </span>
         <input
           id={`new-set-weight-${entry.id}`}
@@ -149,7 +149,7 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
         <ol className="sets upcoming" aria-label="Впереди по плану">
           {laterPlanned.map((set, i) => (
             <li key={set.id} className="upcoming-set">
-              <span className="set-number">{performedPairs.length + 2 + i}</span>
+              <span className="set-number">{nextNumber + 1 + i}</span>
               <span className="set-value">{showWeight(set.weight)}</span>
               <span className="unit">кг ×</span>
               <span className="set-value reps">{set.reps}</span>

@@ -11,13 +11,15 @@ interface SetRowProps {
   set: PerformedSet;
   /** The Planned Set this one is paired with, if any. */
   planned: PlannedSet | null;
+  /** An extra Set in an Entry with a Plan: past its planned count. */
+  beyondPlan: boolean;
   number: number;
   onChange: () => Promise<void>;
 }
 
 type Field = "weight" | "reps";
 
-export function SetRow({ journal, set, planned, number, onChange }: SetRowProps) {
+export function SetRow({ journal, set, planned, beyondPlan, number, onChange }: SetRowProps) {
   const [weight, setWeight] = useState(showNumber(set.weight));
   const [reps, setReps] = useState(String(set.reps));
   /** The field being edited; the values show as text otherwise. */
@@ -186,6 +188,7 @@ export function SetRow({ journal, set, planned, number, onChange }: SetRowProps)
           план {showWeight(planned.weight)} кг × {planned.reps}
         </p>
       ) : null}
+      {beyondPlan ? <p className="set-plan">сверх плана</p> : null}
 
       {editing === null ? null : (
         <div className="set-delete">
