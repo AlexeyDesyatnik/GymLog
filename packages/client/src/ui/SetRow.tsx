@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { flushSync } from "react-dom";
 import { RPE_SCALE } from "@gymlog/shared";
-import type { Journal, PerformedSet } from "../journal/journal.ts";
+import type { Journal, PerformedSet, PlannedSet } from "../journal/journal.ts";
 import { parseReps, parseWeight, showNumber, showRpe } from "./numbers.ts";
 import { ConfirmDelete } from "./ConfirmDelete.tsx";
 import { useAutosave } from "./useAutosave.ts";
@@ -9,13 +9,15 @@ import { useAutosave } from "./useAutosave.ts";
 interface SetRowProps {
   journal: Journal;
   set: PerformedSet;
+  /** The Planned Set this one is paired with, if any. */
+  planned: PlannedSet | null;
   number: number;
   onChange: () => Promise<void>;
 }
 
 type Field = "weight" | "reps";
 
-export function SetRow({ journal, set, number, onChange }: SetRowProps) {
+export function SetRow({ journal, set, planned, number, onChange }: SetRowProps) {
   const [weight, setWeight] = useState(showNumber(set.weight));
   const [reps, setReps] = useState(String(set.reps));
   /** The field being edited; the values show as text otherwise. */
@@ -92,6 +94,8 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
 
   const showComment = commenting || comment.trim() !== "";
   const shownWeight = set.weight === null ? null : showNumber(set.weight);
+  // Done as planned needs no note; a difference shows what the Plan said.
+  const offPlan = planned !== null && (planned.weight !== set.weight || planned.reps !== set.reps);
 
   if (confirmingDelete) {
     return (
@@ -176,6 +180,12 @@ export function SetRow({ journal, set, number, onChange }: SetRowProps) {
           {set.rpe === null ? "RPE" : `RPE ${showRpe(set.rpe)}`}
         </button>
       </div>
+
+      {offPlan ? (
+        <p className="set-plan">
+          план {planned.weight === null ? "" : `${showNumber(planned.weight)} кг `}× {planned.reps}
+        </p>
+      ) : null}
 
       {editing === null ? null : (
         <div className="set-delete">

@@ -13,12 +13,17 @@ interface EntryCardProps {
 }
 
 export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
-  const last = entry.performedSets.at(-1);
-  // The next Set starts from the previous one, so repeating a Set is one tap.
-  const [weight, setWeight] = useState(last ? showNumber(last.weight) : "");
-  const [reps, setReps] = useState(last ? String(last.reps) : "");
-  /** The values are still the previous Set's (number prefill), shown muted until edited. */
-  const [prefilled, setPrefilled] = useState(last !== undefined);
+  const performedPairs = entry.pairs.filter((pair) => pair.performed !== null);
+  const [nextPlanned, ...laterPlanned] = entry.pairs.flatMap((pair) => (pair.performed ? [] : [pair.planned!]));
+  // The next Set starts from the next Planned Set, or else from the previous Set, so doing
+  // it as planned, or repeating a Set, is one tap.
+  const suggestion = nextPlanned ?? entry.performedSets.at(-1) ?? null;
+  /** What the user typed over the suggestion; null while the suggestion (number prefill) stands. */
+  const [typed, setTyped] = useState<{ weight: string; reps: string } | null>(null);
+  const weight = typed?.weight ?? (suggestion ? showNumber(suggestion.weight) : "");
+  const reps = typed?.reps ?? (suggestion ? String(suggestion.reps) : "");
+  const prefilled = typed === null && suggestion !== null;
+  const confirming = prefilled && nextPlanned !== undefined;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const planned = entry.plannedSets.length > 0;
   const parsedWeight = parseWeight(weight);
@@ -27,8 +32,9 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
   async function addSet(event: FormEvent) {
     event.preventDefault();
     if (!parsedWeight.ok || !parsedReps.ok) return;
-    await journal.addPerformedSet(entry.id, { weight: parsedWeight.value, reps: parsedReps.value });
-    setPrefilled(true);
+    if (confirming) await journal.confirmPlannedSet(entry.id);
+    else await journal.addPerformedSet(entry.id, { weight: parsedWeight.value, reps: parsedReps.value });
+    setTyped(null);
     await onChange();
   }
 
@@ -66,10 +72,17 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
         </p>
       ) : null}
 
-      {entry.performedSets.length > 0 ? (
+      {performedPairs.length > 0 ? (
         <ol className="sets">
-          {entry.performedSets.map((set, i) => (
-            <SetRow key={set.id} journal={journal} set={set} number={i + 1} onChange={onChange} />
+          {performedPairs.map(({ planned, performed }, i) => (
+            <SetRow
+              key={performed!.id}
+              journal={journal}
+              set={performed!}
+              planned={planned}
+              number={i + 1}
+              onChange={onChange}
+            />
           ))}
         </ol>
       ) : null}
@@ -84,10 +97,7 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
           type="text"
           inputMode="decimal"
           value={weight}
-          onChange={(e) => {
-            setWeight(e.target.value);
-            setPrefilled(false);
-          }}
+          onChange={(e) => setTyped({ weight: e.target.value, reps })}
           placeholder="вес"
           aria-label="Вес, кг"
           aria-invalid={!parsedWeight.ok}
@@ -100,18 +110,28 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
           inputMode="numeric"
           pattern="[0-9]*"
           value={reps}
-          onChange={(e) => {
-            setReps(e.target.value);
-            setPrefilled(false);
-          }}
+          onChange={(e) => setTyped({ weight, reps: e.target.value })}
           placeholder="повт."
           aria-label="Повторы"
           aria-invalid={reps !== "" && !parsedReps.ok}
         />
         <button className="button primary" type="submit" disabled={!parsedWeight.ok || !parsedReps.ok}>
-          + Подход
+          {confirming ? "✓ Сделано" : "+ Подход"}
         </button>
       </form>
+
+      {laterPlanned.length > 0 ? (
+        <ol className="sets upcoming" aria-label="Впереди по плану">
+          {laterPlanned.map((set, i) => (
+            <li key={set.id} className="upcoming-set">
+              <span className="set-number">{performedPairs.length + 2 + i}</span>
+              <span className="set-value">{set.weight === null ? "—" : showNumber(set.weight)}</span>
+              <span className="unit">кг ×</span>
+              <span className="set-value reps">{set.reps}</span>
+            </li>
+          ))}
+        </ol>
+      ) : null}
     </li>
   );
 }

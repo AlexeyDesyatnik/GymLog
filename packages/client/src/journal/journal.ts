@@ -37,11 +37,19 @@ export interface PlannedSet {
   reps: number;
 }
 
+/** A Planned Set and the Performed Set paired with it; either side may be missing. */
+export interface SetPair {
+  planned: PlannedSet | null;
+  performed: PerformedSet | null;
+}
+
 export interface Entry {
   id: string;
   exercise: Exercise;
   plannedSets: PlannedSet[];
   performedSets: PerformedSet[];
+  /** Planned and Performed Sets paired by order: every Set of the Entry is in exactly one pair. */
+  pairs: SetPair[];
 }
 
 export interface WorkoutWithEntries extends Workout {
@@ -65,6 +73,8 @@ export interface Journal {
   /** Deletes an Entry added on the fly; its Sets go with it, hidden by the Entry's tombstone. */
   deleteEntry(entryId: string): Promise<void>;
   addPerformedSet(entryId: string, values: SetValues): Promise<PerformedSet>;
+  /** Records the next unpaired Planned Set as done: a Performed Set with its weight and reps. */
+  confirmPlannedSet(entryId: string): Promise<PerformedSet>;
   editPerformedSet(setId: string, values: SetValues): Promise<void>;
   deletePerformedSet(setId: string): Promise<void>;
   /** Sets RPE to a value on RPE_SCALE, or clears it with null. */
@@ -130,6 +140,30 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       .sort((a, b) => a.position - b.position);
   }
 
+  /** The live Sets of these Entries, in order. */
+  async function liveSetsOf(entryIds: string[]): Promise<SetRecord[]> {
+    return (await db.sets.where("entryId").anyOf(entryIds).toArray())
+      .filter((s) => !s.deleted)
+      .sort((a, b) => a.position - b.position);
+  }
+
+  /** Adds a Performed Set after the Entry's other Sets; call it inside a transaction on the Sets. */
+  async function recordPerformedSet(entryId: string, { weight, reps }: SetValues): Promise<PerformedSet> {
+    const count = await db.sets.where("entryId").equals(entryId).count();
+    const set: SetRecord = {
+      ...newRecord(),
+      entryId,
+      kind: "performed",
+      position: count,
+      weight,
+      reps,
+      rpe: null,
+      comment: null,
+    };
+    await db.sets.add(set);
+    return toPerformedSet(set);
+  }
+
   return {
     async createWorkout(date) {
       const record: WorkoutRecord = { ...newRecord(), date, createdAt: now() };
@@ -156,15 +190,18 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       if (!workout || workout.deleted) return undefined;
       const entries = await liveEntriesOf([id]);
       const exercises = await db.exercises.bulkGet(entries.map((e) => e.exerciseId));
-      const sets = (await db.sets.where("entryId").anyOf(entries.map((e) => e.id)).toArray())
-        .filter((s) => !s.deleted)
-        .sort((a, b) => a.position - b.position);
-      const views: Entry[] = entries.map((entry, i) => ({
-        id: entry.id,
-        exercise: toExercise(exercises[i]!),
-        plannedSets: sets.filter((s) => s.entryId === entry.id && s.kind === "planned").map(toPlannedSet),
-        performedSets: sets.filter((s) => s.entryId === entry.id && s.kind === "performed").map(toPerformedSet),
-      }));
+      const sets = await liveSetsOf(entries.map((e) => e.id));
+      const views: Entry[] = entries.map((entry, i) => {
+        const plannedSets = sets.filter((s) => s.entryId === entry.id && s.kind === "planned").map(toPlannedSet);
+        const performedSets = sets.filter((s) => s.entryId === entry.id && s.kind === "performed").map(toPerformedSet);
+        return {
+          id: entry.id,
+          exercise: toExercise(exercises[i]!),
+          plannedSets,
+          performedSets,
+          pairs: pairByOrder(plannedSets, performedSets),
+        };
+      });
       return {
         ...toWorkout(workout),
         entries: views,
@@ -191,7 +228,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         const count = await db.entries.where("workoutId").equals(workoutId).count();
         const entry: EntryRecord = { ...newRecord(), workoutId, exerciseId: exercise.id, position: count };
         await db.entries.add(entry);
-        return { id: entry.id, exercise: toExercise(exercise), plannedSets: [], performedSets: [] };
+        return { id: entry.id, exercise: toExercise(exercise), plannedSets: [], performedSets: [], pairs: [] };
       });
     },
 
@@ -208,22 +245,19 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       });
     },
 
-    async addPerformedSet(entryId, { weight, reps }) {
-      checkSetValues({ weight, reps });
+    async addPerformedSet(entryId, values) {
+      checkSetValues(values);
+      return db.transaction("rw", db.sets, () => recordPerformedSet(entryId, values));
+    },
+
+    async confirmPlannedSet(entryId) {
       return db.transaction("rw", db.sets, async () => {
-        const count = await db.sets.where("entryId").equals(entryId).count();
-        const set: SetRecord = {
-          ...newRecord(),
-          entryId,
-          kind: "performed",
-          position: count,
-          weight,
-          reps,
-          rpe: null,
-          comment: null,
-        };
-        await db.sets.add(set);
-        return toPerformedSet(set);
+        const sets = await liveSetsOf([entryId]);
+        const performed = sets.filter((s) => s.kind === "performed").length;
+        // Pairing is by order, so the next unpaired Planned Set is the one after as many as are performed.
+        const next = sets.filter((s) => s.kind === "planned")[performed];
+        if (!next) throw new RangeError("Every Planned Set of this Entry is already performed");
+        return recordPerformedSet(entryId, { weight: next.weight, reps: next.reps });
       });
     },
 
@@ -255,9 +289,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         const workout = await db.workouts.get(workoutId);
         if (!workout || workout.deleted) throw new RangeError(`No Workout ${workoutId}`);
         const entries = await liveEntriesOf([workoutId]);
-        const sets = (await db.sets.where("entryId").anyOf(entries.map((e) => e.id)).toArray()).filter(
-          (s) => !s.deleted,
-        );
+        const sets = await liveSetsOf(entries.map((e) => e.id));
         if (isPlanLocked(sets)) {
           throw new RangeError("The Plan can't be changed once the Workout has Performed Sets");
         }
@@ -318,6 +350,13 @@ function toPerformedSet(record: SetRecord): PerformedSet {
 
 function toPlannedSet(record: SetRecord): PlannedSet {
   return { id: record.id, weight: record.weight, reps: record.reps };
+}
+
+function pairByOrder(planned: PlannedSet[], performed: PerformedSet[]): SetPair[] {
+  return Array.from({ length: Math.max(planned.length, performed.length) }, (_, i) => ({
+    planned: planned[i] ?? null,
+    performed: performed[i] ?? null,
+  }));
 }
 
 /** Re-editing a Plan with recorded Sets needs reconciliation, which comes in a later ticket. */
