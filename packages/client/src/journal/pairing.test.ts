@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { localDate } from "@gymlog/shared";
+import type { Entry } from "./journal.ts";
 import { freshJournal } from "./testing.ts";
 
 /** A Workout whose Plan has one Entry, read back with its Performed Sets. */
@@ -23,7 +24,7 @@ test("confirming a Planned Set records a Performed Set with its weight and reps,
 });
 
 /** Each pair as [planned weight × reps, performed weight × reps], null where a side is missing. */
-function pairsOf(entry: Awaited<ReturnType<typeof plannedEntry>>["entry"]) {
+function pairsOf(entry: Entry) {
   return entry.pairs.map(({ planned, performed }) => [
     planned && [planned.weight, planned.reps],
     performed && [performed.weight, performed.reps],
@@ -49,12 +50,11 @@ test("confirming pairs with the next unpaired Planned Set, and the rest wait unp
   ]);
 });
 
-test("a Set entered directly pairs by order too, and editing a Performed Set never changes the Plan", async () => {
-  const { journal, workout, entry, read } = await plannedEntry("bench press 80x5x2");
+test("a Performed Set added without confirming pairs by order too", async () => {
+  const { journal, entry, read } = await plannedEntry("bench press 80x5x2");
 
   await journal.confirmPlannedSet(entry.id);
-  const heavier = await journal.addPerformedSet(entry.id, { weight: 80, reps: 4 });
-  await journal.editPerformedSet(heavier.id, { weight: 82.5, reps: 3 });
+  await journal.addPerformedSet(entry.id, { weight: 80, reps: 4 });
 
   expect(pairsOf(await read())).toEqual([
     [
@@ -63,8 +63,20 @@ test("a Set entered directly pairs by order too, and editing a Performed Set nev
     ],
     [
       [80, 5],
-      [82.5, 3],
+      [80, 4],
     ],
+  ]);
+});
+
+test("editing a confirmed Performed Set never changes the Plan", async () => {
+  const { journal, workout, entry, read } = await plannedEntry("bench press 80x5x2");
+  const confirmed = await journal.confirmPlannedSet(entry.id);
+
+  await journal.editPerformedSet(confirmed.id, { weight: 82.5, reps: 3 });
+
+  expect(pairsOf(await read())[0]).toEqual([
+    [80, 5],
+    [82.5, 3],
   ]);
   expect((await journal.getWorkout(workout.id))!.planNotation).toBe("bench press 80x5x2");
 });

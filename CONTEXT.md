@@ -55,6 +55,10 @@ A Set in the Plan: what the user intends to do.
 A Set the user actually did. Within an Entry, performed Sets pair with planned Sets by order; any beyond the planned count are simply performed Sets with no pair.
 _Avoid_: Actual set, logged set, unplanned set
 
+**Confirm** (подтвердить подход):
+To record the next Planned Set that has no Performed Set paired with it as done as planned: a Performed Set with its Weight and Reps, and no RPE or Comment.
+_Avoid_: Check off, complete, tick
+
 **Weight** (вес):
 The load number the user writes for a Set, in kg. Optional: blank for bodyweight exercises; for weighted bodyweight exercises it is the added load; for dumbbells it is the number on one dumbbell.
 _Avoid_: Load

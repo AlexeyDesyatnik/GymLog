@@ -24,6 +24,11 @@ export function showNumber(value: number | null): string {
   return value === null ? "" : String(value).replace(".", ",");
 }
 
+/** A Set's weight as it reads in a row: "82,5", or "—" for a bodyweight Set. */
+export function showWeight(weight: number | null): string {
+  return weight === null ? "—" : showNumber(weight);
+}
+
 /** RPE_BELOW_5 → "<5"; 7.5 → "7,5". A value left from the older scale shows as the number it is. */
 export function showRpe(rpe: number): string {
   return rpe === RPE_BELOW_5 ? "<5" : showNumber(rpe);

@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent,
 import { flushSync } from "react-dom";
 import { RPE_SCALE } from "@gymlog/shared";
 import type { Journal, PerformedSet, PlannedSet } from "../journal/journal.ts";
-import { parseReps, parseWeight, showNumber, showRpe } from "./numbers.ts";
+import { parseReps, parseWeight, showNumber, showRpe, showWeight } from "./numbers.ts";
 import { ConfirmDelete } from "./ConfirmDelete.tsx";
 import { useAutosave } from "./useAutosave.ts";
 
@@ -120,7 +120,7 @@ export function SetRow({ journal, set, planned, number, onChange }: SetRowProps)
             aria-label={`Подход ${number}: ${shownWeight === null ? "без веса" : `${shownWeight} кг`} × ${set.reps}, изменить`}
           >
             <span className="set-value" data-field="weight">
-              {shownWeight ?? "—"}
+              {showWeight(set.weight)}
             </span>
             <span className="unit">кг ×</span>
             <span className="set-value reps" data-field="reps">
@@ -183,7 +183,7 @@ export function SetRow({ journal, set, planned, number, onChange }: SetRowProps)
 
       {offPlan ? (
         <p className="set-plan">
-          план {planned.weight === null ? "" : `${showNumber(planned.weight)} кг `}× {planned.reps}
+          план {showWeight(planned.weight)} кг × {planned.reps}
         </p>
       ) : null}
 

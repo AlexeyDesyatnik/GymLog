@@ -1,7 +1,7 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { formatPlanSets } from "@gymlog/shared";
 import type { Entry, Journal } from "../journal/journal.ts";
-import { parseReps, parseWeight, showNumber } from "./numbers.ts";
+import { parseReps, parseWeight, showNumber, showWeight } from "./numbers.ts";
 import { ConfirmDelete } from "./ConfirmDelete.tsx";
 import { formatSetCount } from "./format.ts";
 import { SetRow } from "./SetRow.tsx";
@@ -18,24 +18,49 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
   // The next Set starts from the next Planned Set, or else from the previous Set, so doing
   // it as planned, or repeating a Set, is one tap.
   const suggestion = nextPlanned ?? entry.performedSets.at(-1) ?? null;
-  /** What the user typed over the suggestion; null while the suggestion (number prefill) stands. */
-  const [typed, setTyped] = useState<{ weight: string; reps: string } | null>(null);
-  const weight = typed?.weight ?? (suggestion ? showNumber(suggestion.weight) : "");
-  const reps = typed?.reps ?? (suggestion ? String(suggestion.reps) : "");
-  const prefilled = typed === null && suggestion !== null;
-  const confirming = prefilled && nextPlanned !== undefined;
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const planned = entry.plannedSets.length > 0;
+  /**
+   * What the user typed over the suggestion (number prefill), and which suggestion it was
+   * typed over: once that Set is recorded or deleted, the typing no longer applies.
+   */
+  const [typed, setTyped] = useState<{ over: string | null; weight: string; reps: string } | null>(null);
+  const typing = typed !== null && typed.over === (suggestion?.id ?? null) ? typed : null;
+  const weight = typing?.weight ?? (suggestion ? showNumber(suggestion.weight) : "");
+  const reps = typing?.reps ?? (suggestion ? String(suggestion.reps) : "");
+  const prefilled = typing === null && suggestion !== null;
   const parsedWeight = parseWeight(weight);
   const parsedReps = parseReps(reps);
+  // The next Planned Set's own numbers, typed or not, record it as done as planned.
+  const asPlanned =
+    nextPlanned !== undefined &&
+    parsedWeight.ok &&
+    parsedReps.ok &&
+    parsedWeight.value === nextPlanned.weight &&
+    parsedReps.value === nextPlanned.reps;
+  const [saving, setSaving] = useState(false);
+  // Set at once, unlike state, so a second tap arriving before the next render is turned away.
+  const savingNow = useRef(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const planned = entry.plannedSets.length > 0;
+
+  function type(values: { weight: string; reps: string }) {
+    setTyped({ over: suggestion?.id ?? null, ...values });
+  }
 
   async function addSet(event: FormEvent) {
     event.preventDefault();
-    if (!parsedWeight.ok || !parsedReps.ok) return;
-    if (confirming) await journal.confirmPlannedSet(entry.id);
-    else await journal.addPerformedSet(entry.id, { weight: parsedWeight.value, reps: parsedReps.value });
-    setTyped(null);
-    await onChange();
+    if (!parsedWeight.ok || !parsedReps.ok || savingNow.current) return;
+    // One Set per tap: a second tap before the list reloads would record the Set after it.
+    savingNow.current = true;
+    setSaving(true);
+    try {
+      if (asPlanned) await journal.confirmPlannedSet(entry.id);
+      else await journal.addPerformedSet(entry.id, { weight: parsedWeight.value, reps: parsedReps.value });
+      setTyped(null);
+      await onChange();
+    } finally {
+      savingNow.current = false;
+      setSaving(false);
+    }
   }
 
   async function deleteEntry() {
@@ -89,7 +114,7 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
 
       <form className="add-set" onSubmit={addSet}>
         <span className="set-number" aria-hidden="true">
-          {entry.performedSets.length + 1}
+          {performedPairs.length + 1}
         </span>
         <input
           id={`new-set-weight-${entry.id}`}
@@ -97,8 +122,8 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
           type="text"
           inputMode="decimal"
           value={weight}
-          onChange={(e) => setTyped({ weight: e.target.value, reps })}
-          placeholder="вес"
+          onChange={(e) => type({ weight: e.target.value, reps })}
+          placeholder={suggestion !== null && suggestion.weight === null ? "—" : "вес"}
           aria-label="Вес, кг"
           aria-invalid={!parsedWeight.ok}
         />
@@ -110,13 +135,13 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
           inputMode="numeric"
           pattern="[0-9]*"
           value={reps}
-          onChange={(e) => setTyped({ weight, reps: e.target.value })}
+          onChange={(e) => type({ weight, reps: e.target.value })}
           placeholder="повт."
           aria-label="Повторы"
           aria-invalid={reps !== "" && !parsedReps.ok}
         />
-        <button className="button primary" type="submit" disabled={!parsedWeight.ok || !parsedReps.ok}>
-          {confirming ? "✓ Сделано" : "+ Подход"}
+        <button className="button primary" type="submit" disabled={!parsedWeight.ok || !parsedReps.ok || saving}>
+          {asPlanned ? "✓ Сделано" : "+ Подход"}
         </button>
       </form>
 
@@ -125,7 +150,7 @@ export function EntryCard({ journal, entry, onChange }: EntryCardProps) {
           {laterPlanned.map((set, i) => (
             <li key={set.id} className="upcoming-set">
               <span className="set-number">{performedPairs.length + 2 + i}</span>
-              <span className="set-value">{set.weight === null ? "—" : showNumber(set.weight)}</span>
+              <span className="set-value">{showWeight(set.weight)}</span>
               <span className="unit">кг ×</span>
               <span className="set-value reps">{set.reps}</span>
             </li>

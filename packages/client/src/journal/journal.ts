@@ -253,10 +253,11 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     async confirmPlannedSet(entryId) {
       return db.transaction("rw", db.sets, async () => {
         const sets = await liveSetsOf([entryId]);
-        const performed = sets.filter((s) => s.kind === "performed").length;
-        // Pairing is by order, so the next unpaired Planned Set is the one after as many as are performed.
-        const next = sets.filter((s) => s.kind === "planned")[performed];
-        if (!next) throw new RangeError("Every Planned Set of this Entry is already performed");
+        const next = pairByOrder(
+          sets.filter((s) => s.kind === "planned").map(toPlannedSet),
+          sets.filter((s) => s.kind === "performed").map(toPerformedSet),
+        ).find((pair) => pair.performed === null)?.planned;
+        if (!next) throw new RangeError(`No Planned Set left to perform in Entry ${entryId}`);
         return recordPerformedSet(entryId, { weight: next.weight, reps: next.reps });
       });
     },
