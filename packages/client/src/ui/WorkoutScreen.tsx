@@ -8,12 +8,35 @@ import { PlanEditor } from "./PlanEditor.tsx";
 import { clearPlanDraft, loadPlanDraft, type PlanDraft } from "./planDraft.ts";
 import { workoutsHref } from "./useRoute.ts";
 
+/**
+ * Opens the Plan editor. Once part of the Workout is recorded, editing the Plan is the
+ * exception, so it asks first; "Отмена" has the focus, so a stray tap changes nothing.
+ */
 function PlanButton({ workout, onOpen }: { workout: WorkoutWithEntries; onOpen: () => void }) {
+  const [asking, setAsking] = useState(false);
   const hasPlan = workout.entries.some((e) => e.plannedSets.length > 0);
+  // Writing a first Plan only adds Entries, so there is nothing to ask.
+  const askFirst = hasPlan && workout.entries.some((e) => e.performedSets.length > 0);
+  const label = hasPlan ? "Изменить план" : "Написать план";
+  if (asking) {
+    return (
+      <div className="plan-button confirming" role="alertdialog" aria-label="Подтверждение изменения плана">
+        <p className="confirm-text">Часть тренировки уже записана. Всё равно изменить план? Записанные подходы сохранятся.</p>
+        <div className="actions">
+          <button className="button primary" type="button" onClick={onOpen}>
+            {label}
+          </button>
+          <button className="button" type="button" onClick={() => setAsking(false)} autoFocus>
+            Отмена
+          </button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="plan-button">
-      <button className="button" type="button" onClick={onOpen}>
-        {hasPlan ? "Изменить план" : "Написать план"}
+      <button className="button" type="button" onClick={askFirst ? () => setAsking(true) : onOpen}>
+        {label}
       </button>
     </div>
   );

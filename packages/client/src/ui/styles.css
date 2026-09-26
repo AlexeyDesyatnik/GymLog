@@ -569,6 +569,15 @@ a.workout-link:focus-visible {
   gap: 4px;
 }
 
+/* A question, not a danger: recorded Sets are kept whatever the new Plan says. */
+.plan-button.confirming {
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+}
+
 .hint {
   margin: 0;
   font-size: 13px;
