@@ -21,8 +21,8 @@ function PlanButton({ workout, onOpen }: { workout: WorkoutWithEntries; onOpen: 
 
 /**
  * The Plan editor's starting point: an unfinished draft of the current Plan, or the Plan
- * itself; null when the Workout is Finished. A draft of a Plan that
- * has changed since would hide the change, so it is dropped.
+ * itself; null when the Workout is Finished. A draft of a Plan that has changed since would
+ * hide the change, so it is dropped.
  */
 function draftFor(workoutId: string, workout: WorkoutWithEntries): PlanDraft | null {
   const stored = loadPlanDraft(workoutId);

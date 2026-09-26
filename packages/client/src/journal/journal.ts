@@ -423,16 +423,16 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         await changeableWorkout(db, workoutId);
         const entries = await liveEntriesOf(db, [workoutId]);
         const sets = await liveSetsOf(db, entries.map((e) => e.id));
-        const plannedEntryIds = new Set(sets.filter((s) => s.kind === "planned").map((s) => s.entryId));
+        const oldPlannedSets = sets.filter((s) => s.kind === "planned");
+        const plannedEntryIds = new Set(oldPlannedSets.map((s) => s.entryId));
         const performedEntryIds = new Set(sets.filter((s) => s.kind === "performed").map((s) => s.entryId));
         const time = now();
 
         // The old Planned Sets all go; each line then takes, in order, the next planned Entry of its Exercise.
-        for (const set of sets.filter((s) => s.kind === "planned")) {
-          await db.sets.update(set.id, { deleted: true, updatedAt: time });
-        }
+        for (const set of oldPlannedSets) await db.sets.update(set.id, { deleted: true, updatedAt: time });
         const unmatched = entries.filter((e) => plannedEntryIds.has(e.id));
-        const order: EntryRecord[] = [];
+        /** The Workout's Entries in their new order. */
+        const ordered: EntryRecord[] = [];
         for (const line of lines) {
           if (!line.ok) continue;
           const exercise = await findOrCreateExercise(line.exerciseName);
@@ -441,13 +441,13 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
           if (matchIndex >= 0) {
             entry = unmatched.splice(matchIndex, 1)[0]!;
           } else {
-            entry = { ...newRecord(), workoutId, exerciseId: exercise.id, position: order.length };
+            entry = { ...newRecord(), workoutId, exerciseId: exercise.id, position: ordered.length };
             await db.entries.add(entry);
           }
-          order.push(entry);
+          ordered.push(entry);
           // A Substitute stays right after the Entry it replaces.
           const substitute = entries.find((e) => e.substitutesEntryId === entry.id);
-          if (substitute) order.push(substitute);
+          if (substitute) ordered.push(substitute);
           // A group's Target RPE is for its first Set.
           const plannedSets = line.groups.flatMap(({ weight, reps, maxReps, sets, targetRpe }) =>
             Array.from({ length: sets }, (_, i) => ({ weight, reps, maxReps, targetRpe: i === 0 ? targetRpe : null })),
@@ -471,8 +471,8 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         const removed = unmatched.filter((e) => !performedEntryIds.has(e.id));
         for (const entry of removed) await db.entries.update(entry.id, { deleted: true, updatedAt: time });
         // Entries outside the Plan stay after it, in their order.
-        order.push(...entries.filter((e) => !order.includes(e) && !removed.includes(e)));
-        for (const [position, entry] of order.entries()) {
+        ordered.push(...entries.filter((e) => !ordered.includes(e) && !removed.includes(e)));
+        for (const [position, entry] of ordered.entries()) {
           if (entry.position !== position) await db.entries.update(entry.id, { position, updatedAt: time });
         }
       });
