@@ -53,25 +53,29 @@ test("Sets recorded offline stay on the device when the app is closed, and reach
   );
 });
 
-test("a push cut off midway by the connection dropping is sent again once it is back, and every record reaches the server once", async () => {
+test("a push cut off midway by the connection dropping is sent again once it is back, and the other device gets each record once", async () => {
   const { server, phone, computer } = await phoneAndComputer();
   const workout = await phone.journal.createWorkout(localDate("2026-09-27"));
-  // More Sets than one request carries.
+  // The Workout, the Exercise, the Entry and 300 Sets: more records than one request carries.
   await phone.journal.setPlan(workout.id, "squat 100x5x300");
 
   phone.dropConnectionMidPush();
   await expect(phone.journal.sync.now()).rejects.toThrow("the connection dropped");
+  const beforeTheResend = await pullAs(computer, server.url);
   phone.goOnline();
   await phone.journal.sync.now();
-  await computer.journal.sync.now();
+  const afterTheResend = await pullAs(computer, server.url, beforeTheResend.cursor);
 
+  // Part of the push reached the server before the connection dropped.
+  expect(beforeTheResend.records.length).toBeGreaterThan(0);
+  expect(beforeTheResend.records.length).toBeLessThan(303);
+  // Sending that part again brings the other device only the rest, nothing twice.
+  const ids = [...beforeTheResend.records, ...afterTheResend.records].map((r) => r.id);
+  expect(ids).toHaveLength(303);
+  expect(new Set(ids).size).toBe(303);
+  await computer.journal.sync.now();
   const arrived = await computer.journal.getWorkout(workout.id);
   expect(arrived?.planNotation).toBe("squat 100x5x300");
-  expect(arrived?.entries[0]?.plannedSets).toHaveLength(300);
-  const { records } = await pullAs(computer, server.url);
-  // The Workout, the Exercise, the Entry and its Sets, each once.
-  expect(records).toHaveLength(303);
-  expect(new Set(records.map((r) => r.id)).size).toBe(303);
 });
 
 test("a request left without an answer is given up, and the next sync sends the change", async () => {
@@ -79,14 +83,14 @@ test("a request left without an answer is given up, and the next sync sends the 
   const workout = await phone.journal.createWorkout(localDate("2026-09-27"));
 
   phone.stallNextRequest();
-  await expect(phone.journal.sync.now()).rejects.toThrow();
+  await expect(phone.journal.sync.now()).rejects.toThrow("timeout");
   await phone.journal.sync.now();
   await computer.journal.sync.now();
 
   expect((await computer.journal.listWorkouts()).map((w) => w.id)).toEqual([workout.id]);
 });
 
-test("Sets recorded after the session expired stay on the device, and reach the other device once the user signs in again", async () => {
+test("Sets recorded after the sign-in expired stay on the device, and reach the other device once the user signs in again", async () => {
   const { phone, computer } = await phoneAndComputer();
   phone.expireSession();
   const workout = await phone.journal.createWorkout(localDate("2026-09-27"));

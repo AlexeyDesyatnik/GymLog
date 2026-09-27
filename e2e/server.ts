@@ -22,8 +22,10 @@ export default async function startServer(): Promise<() => Promise<void>> {
     stdio: ["ignore", "pipe", "inherit"],
   });
   await new Promise<void>((resolve, reject) => {
+    let output = "";
     server.stdout.on("data", (chunk: Buffer) => {
-      if (chunk.toString().includes("GymLog server at")) resolve();
+      output += chunk.toString();
+      if (output.includes("GymLog server at")) resolve();
     });
     server.on("exit", (code) => reject(new Error(`The server stopped before it started, with code ${code}`)));
   });
