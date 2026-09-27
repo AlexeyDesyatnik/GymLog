@@ -1,7 +1,18 @@
 import type { StoreState } from "../journal/journal.ts";
 
-/** Why the data on this device can't be used right now. */
-export type StoreProblemState = Exclude<StoreState, { status: "opening" | "ready" }>;
+/** Why the data on this device can't be used right now, or why the last change was lost. */
+export type StoreProblemState =
+  | Exclude<StoreState, { status: "opening" | "ready" }>
+  | { status: "notSaved"; error: string };
+
+/** What each kind of failure says, above the error's text. */
+const FAILURE_TEXT = {
+  failed: { title: "Не удалось открыть данные на этом устройстве.", hint: "Ничего не удалено." },
+  notSaved: {
+    title: "Не удалось сохранить изменение на этом устройстве.",
+    hint: "Не сохранилось только последнее изменение, записанное раньше на месте.",
+  },
+};
 
 /**
  * Shown in place of the screens while the data on this device can't be used, so the app
@@ -29,9 +40,11 @@ export function StoreProblem({ problem }: { problem: StoreProblemState }) {
         ) : (
           <>
             <p className="store-problem-text">
-              <strong>Не удалось открыть данные на этом устройстве.</strong>
+              <strong>{FAILURE_TEXT[problem.status].title}</strong>
             </p>
-            <p className="hint">Ничего не удалено. Если ошибка повторяется, сообщите о ней, приложив этот текст:</p>
+            <p className="hint">
+              {FAILURE_TEXT[problem.status].hint} Если ошибка повторяется, сообщите о ней, приложив этот текст:
+            </p>
             <pre className="store-problem-error">{problem.error}</pre>
           </>
         )}

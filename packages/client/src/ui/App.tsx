@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import type { Journal } from "../journal/journal.ts";
-import { StoreProblem } from "./StoreProblem.tsx";
+import { ChangeNotSaved, type Journal } from "../journal/journal.ts";
+import { StoreProblem, type StoreProblemState } from "./StoreProblem.tsx";
 import { useRoute } from "./useRoute.ts";
 import { useToday } from "./useToday.ts";
 import { WorkoutListScreen } from "./WorkoutListScreen.tsx";
@@ -18,7 +18,7 @@ export function App({ journal }: { journal: Journal }) {
   // without the browser ever reporting it blocked, so a long opening is shown as blocked.
   if (store.status === "opening") return slowOpening ? <StoreProblem problem={{ status: "blocked" }} /> : null;
   if (store.status !== "ready") return <StoreProblem problem={store} />;
-  if (failure !== null) return <StoreProblem problem={{ status: "failed", error: failure }} />;
+  if (failure !== null) return <StoreProblem problem={failure} />;
 
   return route.screen === "workout" ? (
     <WorkoutScreen key={route.workoutId} journal={journal} workoutId={route.workoutId} today={today} />
@@ -28,18 +28,25 @@ export function App({ journal }: { journal: Journal }) {
 }
 
 /**
- * The text of the first failure nobody handled: a read or change the store couldn't carry
- * out, or a refusal the UI should never have asked for. Screens leave these unhandled on
- * purpose, so none of them can end in a button that does nothing.
+ * The first failure nobody handled: a read or change the store couldn't carry out, or a
+ * refusal the UI should never have asked for. Screens leave these unhandled on purpose,
+ * so none of them can end in a button that does nothing.
  */
-function useUnhandledFailure(): string | null {
-  const [failure, setFailure] = useState<string | null>(null);
+function useUnhandledFailure(): StoreProblemState | null {
+  const [failure, setFailure] = useState<StoreProblemState | null>(null);
   useEffect(() => {
-    const onRejection = (event: PromiseRejectionEvent) => setFailure((first) => first ?? String(event.reason));
+    const onRejection = (event: PromiseRejectionEvent) => setFailure((first) => first ?? failureOf(event.reason));
     window.addEventListener("unhandledrejection", onRejection);
     return () => window.removeEventListener("unhandledrejection", onRejection);
   }, []);
   return failure;
+}
+
+/** A failed change says it wasn't saved; anything else, that the data couldn't be used. */
+function failureOf(reason: unknown): StoreProblemState {
+  return reason instanceof ChangeNotSaved
+    ? { status: "notSaved", error: String(reason.cause) }
+    : { status: "failed", error: String(reason) };
 }
 
 /** Opening has gone on for longer than it ever takes on its own. */

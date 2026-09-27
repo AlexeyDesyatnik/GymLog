@@ -108,7 +108,11 @@ export interface WorkoutWithEntries extends Workout {
   planNotation: string;
 }
 
-/** The single interface the UI uses for everything a user does with their Workouts. */
+/**
+ * The single interface the UI uses for everything a user does with their Workouts. A change
+ * that fails, whether the store can't carry it out or the Journal refuses it, rejects with
+ * ChangeNotSaved; the one exception is OwnExerciseRefusal.
+ */
 export interface Journal {
   /** The state of the local store on this device; calls wait while it is opening or blocked. */
   storeState(): StoreState;
@@ -172,6 +176,53 @@ export class OwnExerciseRefusal extends RangeError {
   }
 }
 
+/** A change that failed and left nothing saved; the cause says why. */
+export class ChangeNotSaved extends Error {
+  constructor(cause: unknown) {
+    super(String(cause), { cause });
+    this.name = "ChangeNotSaved";
+  }
+}
+
+/** Whether each call of the Journal changes what is stored; the compiler keeps it complete. */
+const CHANGES: Record<keyof Journal, boolean> = {
+  storeState: false,
+  onStoreStateChange: false,
+  createWorkout: true,
+  listWorkouts: false,
+  getWorkout: false,
+  changeWorkoutDate: true,
+  deleteWorkout: true,
+  finishWorkout: true,
+  undoFinishing: true,
+  addEntry: true,
+  substituteEntry: true,
+  suggestSubstitutes: false,
+  deleteEntry: true,
+  addPerformedSet: true,
+  confirmPlannedSet: true,
+  editPerformedSet: true,
+  deletePerformedSet: true,
+  setRpe: true,
+  setComment: true,
+  setPlan: true,
+  close: false,
+};
+
+/** The Journal, with each failed change rejecting as ChangeNotSaved. */
+function reportingUnsavedChanges(journal: Journal): Journal {
+  const reporting: Record<string, unknown> = { ...journal };
+  for (const [name, changes] of Object.entries(CHANGES)) {
+    if (!changes) continue;
+    const change = journal[name as keyof Journal] as (...args: unknown[]) => Promise<unknown>;
+    reporting[name] = (...args: unknown[]) =>
+      change(...args).catch((error: unknown) => {
+        throw error instanceof OwnExerciseRefusal ? error : new ChangeNotSaved(error);
+      });
+  }
+  return reporting as unknown as Journal;
+}
+
 export interface SetValues {
   weight: number | null;
   reps: number;
@@ -227,7 +278,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     return toPerformedSet(set);
   }
 
-  return {
+  return reportingUnsavedChanges({
     storeState: () => currentStoreState,
 
     onStoreStateChange(listener) {
@@ -517,7 +568,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       closed = true;
       db.close();
     },
-  };
+  });
 }
 
 /** The Exercise of the live Substitute performed instead of this Entry, if there is one. */
