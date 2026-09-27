@@ -85,13 +85,16 @@ export function openStore(name: string, onStateChange: (state: StoreState) => vo
         await upgrading.table(name).toCollection().modify({ unsynced: 1 });
       }
     });
-  for (const table of [db.workouts, db.exercises, db.entries, db.sets] as Table<Unsynced>[]) {
+  for (const table of [db.workouts, db.exercises, db.entries, db.sets] as Table<SyncedRecord & Unsynced>[]) {
     table.hook("creating", (_key, record, transaction) => {
       if (!syncWrites.has(transaction)) record.unsynced = 1;
     });
-    table.hook("updating", (_changes, _key, _record, transaction) =>
-      syncWrites.has(transaction) ? undefined : { unsynced: 1 },
-    );
+    table.hook("updating", (changes: Partial<SyncedRecord>, _key, record, transaction) => {
+      if (syncWrites.has(transaction)) return undefined;
+      // A change is always later than the version it changes, so it wins over it in sync even
+      // when that version came from a device whose clock is ahead of this one.
+      return { unsynced: 1, updatedAt: Math.max(changes.updatedAt ?? 0, record.updatedAt + 1) };
+    });
   }
   db.on("blocked", () => onStateChange({ status: "blocked" }));
   // Dexie closes the store itself here, to let the upgrade go ahead.

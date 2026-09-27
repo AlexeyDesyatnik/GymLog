@@ -18,7 +18,7 @@ export {
   type PlanLine,
   type PlanLineProblem,
 } from "./plan-notation.ts";
-export { RECORD_TYPES } from "./records.ts";
+export { RECORD_TYPES, replacesKept } from "./records.ts";
 export type {
   EntryRecord,
   ExerciseRecord,

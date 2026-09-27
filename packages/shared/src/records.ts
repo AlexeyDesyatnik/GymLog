@@ -57,6 +57,17 @@ export interface SetRecord extends SyncedRecord {
   maxReps?: number | null;
 }
 
+/**
+ * Whether a change to a record replaces the version already kept of it, by the rules of sync
+ * (ADR 0004) that the server and every device follow alike. Deleting wins over editing: a
+ * deleted record never changes again, and deleting replaces any edit. Otherwise the later
+ * change wins; on a tie the version kept stays, as the one the server received first.
+ */
+export function replacesKept(change: SyncedRecord, kept: SyncedRecord): boolean {
+  if (kept.deleted) return false;
+  return change.deleted || change.updatedAt > kept.updatedAt;
+}
+
 /** The kinds of synced record, each kept in a table of its own on the device. */
 export const RECORD_TYPES = ["workout", "exercise", "entry", "set"] as const;
 export type RecordType = (typeof RECORD_TYPES)[number];

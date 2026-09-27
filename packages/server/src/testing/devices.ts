@@ -24,6 +24,11 @@ export interface Device {
   fetch: typeof fetch;
   /** The server gets this device's next request, but its answer is lost on the way back. */
   loseNextAnswer(): void;
+  /** Takes this device offline: its requests fail until it goes online again. */
+  goOffline(): void;
+  goOnline(): void;
+  /** Sets this device's clock to this time, in milliseconds; it ticks by 1 ms per reading from there. */
+  setClock(time: number): void;
   /** Closes the app on this device and opens it again, still signed in. */
   reopen(): Device;
 }
@@ -37,21 +42,26 @@ export async function startTestServer(): Promise<TestServer> {
   onTestFinished(() => server.close());
 
   /** A browser with this local store, cookie jar and clock, where the app has just opened. */
-  function openDevice(store: string, jarFetch: typeof fetch, clock: () => number): Device {
+  function openDevice(store: string, jarFetch: typeof fetch, clock: Clock): Device {
     let losingAnswer = false;
+    let offline = false;
     const deviceFetch: typeof fetch = async (input, init) => {
+      if (offline) throw new TypeError("fetch failed: offline");
       const response = await jarFetch(input, init);
       if (!losingAnswer) return response;
       losingAnswer = false;
       throw new TypeError("fetch failed: the answer was lost");
     };
-    const journal = openJournal({ name: store, now: clock, server: { url: server.url, fetch: deviceFetch } });
+    const journal = openJournal({ name: store, now: clock.read, server: { url: server.url, fetch: deviceFetch } });
     onTestFinished(() => journal.close());
     return {
       journal,
       signIn: (name) => journal.sync.testSignIn(name),
       fetch: deviceFetch,
       loseNextAnswer: () => (losingAnswer = true),
+      goOffline: () => (offline = true),
+      goOnline: () => (offline = false),
+      setClock: clock.set,
       reopen: () => {
         journal.close();
         return openDevice(store, jarFetch, clock);
@@ -62,10 +72,22 @@ export async function startTestServer(): Promise<TestServer> {
   return {
     url: server.url,
     device(store = uniqueJournalName()) {
-      // A device clock that ticks by 1 ms per reading.
-      let time = 1_000;
-      return openDevice(store, cookieJarFetch(), () => time++);
+      return openDevice(store, cookieJarFetch(), tickingClock());
     },
+  };
+}
+
+interface Clock {
+  read(): number;
+  set(time: number): void;
+}
+
+/** A device clock that ticks by 1 ms per reading. */
+function tickingClock(): Clock {
+  let time = 1_000;
+  return {
+    read: () => time++,
+    set: (next) => (time = next),
   };
 }
 

@@ -6,7 +6,14 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import pg from "pg";
-import { checkSyncRecord, type PullAnswer, type PushAnswer, type SyncRecord } from "@gymlog/shared";
+import {
+  checkSyncRecord,
+  replacesKept,
+  type PullAnswer,
+  type PushAnswer,
+  type SyncedRecord,
+  type SyncRecord,
+} from "@gymlog/shared";
 import { identities, records, sessions, users } from "./db/schema.ts";
 
 export interface ServerOptions {
@@ -120,7 +127,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         accepted.length === 0
           ? []
           : await tx
-              .select({ id: records.id, ownerId: records.ownerId, type: records.type })
+              .select({ id: records.id, ownerId: records.ownerId, type: records.type, data: records.data })
               .from(records)
               .where(
                 inArray(
@@ -140,7 +147,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           refused.push({ id: record.id, reason: `The record is a ${existing.type}, not a ${record.type}` });
           continue;
         }
+        // A change older than the one kept, or to a deleted record, is taken and dropped.
+        if (existing && !replacesKept(record, existing.data as SyncedRecord)) continue;
         const { type, ownerId, ...data } = record;
+        storedById.set(record.id, { id: record.id, ownerId, type, data });
         await tx
           .insert(records)
           .values({ id: record.id, ownerId, type, data })

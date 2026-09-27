@@ -1,4 +1,11 @@
-import { RECORD_TYPES, type PullAnswer, type PushAnswer, type RecordType, type SyncedRecord } from "@gymlog/shared";
+import {
+  RECORD_TYPES,
+  replacesKept,
+  type PullAnswer,
+  type PushAnswer,
+  type RecordType,
+  type SyncedRecord,
+} from "@gymlog/shared";
 import { recordTable, writeAsSync, type JournalDb, type Unsynced } from "../journal/store.ts";
 
 /** Where this device stands with sync. */
@@ -162,8 +169,9 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
           if (ownerId !== userId || !RECORD_TYPES.includes(type)) continue;
           const table = recordTable(db, type);
           const current = await table.get(record.id);
-          // A change made here and not sent yet goes to the server next, and replaces this one there.
-          if (current?.unsynced === 1 || (current && sameRecord(current, record))) continue;
+          // A change made here and not sent yet goes to the server next; it stays if it will replace this one there.
+          if (current?.unsynced === 1 && replacesKept(current, record)) continue;
+          if (current && sameRecord(current, record)) continue;
           await table.put({ ...record, unsynced: 0 });
           stored = true;
         }
