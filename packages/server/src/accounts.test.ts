@@ -17,7 +17,7 @@ test("an Invite gives one person an account; anyone else coming with it afterwar
 
   const mariasPhone = server.device();
 
-  await expect(mariasPhone.signIn("maria", invite)).rejects.toMatchObject({ refusal: "inviteUsed" });
+  await expect(mariasPhone.signIn("maria", invite)).rejects.toMatchObject({ refusal: "inviteUnusable" });
 });
 
 test("two people coming with one Invite at the same moment: only one of them gets an account", async () => {
@@ -47,15 +47,15 @@ test("a user with an account signs in on another device without an Invite, and t
 
 test("a user with an account who comes with an unused Invite signs in, and the Invite stays unused", async () => {
   const server = await startTestServer();
-  const alexeysPhone = server.device();
-  await alexeysPhone.signUp("alexey");
-  const invite = await server.ownerInvite();
+  const ownersPhone = server.device();
+  await ownersPhone.signIn("alexey", await server.ownerInvite());
+  const invite = await ownersPhone.journal.sync.createInvite();
 
   await server.device().signIn("alexey", invite);
   const mariasPhone = server.device();
   await mariasPhone.signIn("maria", invite);
 
-  expect(mariasPhone.journal.sync.state()).toMatchObject({ status: "synced" });
+  expect(mariasPhone.journal.sync.state()).toEqual({ status: "synced", owner: false });
 });
 
 test("a new user's Exercise catalog starts from the Starter list: an Exercise is found by its Russian name and shown by its English Primary name", async () => {
@@ -66,7 +66,9 @@ test("a new user's Exercise catalog starts from the Starter list: an Exercise is
   const workout = await phone.journal.createWorkout(localDate("2026-09-27"));
   await phone.journal.setPlan(workout.id, "жим лёжа 80x5x3\nПриседания со штангой 100x5");
 
-  expect((await phone.journal.getWorkout(workout.id))?.planNotation).toBe("Bench press 80x5x3\nBarbell back squat 100x5");
+  expect((await phone.journal.getWorkout(workout.id))?.planNotation).toBe(
+    "Bench press 80x5x3\nBarbell back squat 100x5",
+  );
 });
 
 test("the Starter list is copied into a catalog once: signing in again, on any device, adds no second copy", async () => {
@@ -142,4 +144,13 @@ test("an Invite can be checked before signing in: it is usable until someone get
   const neverMade = await phone.journal.sync.inviteUsable("no-such-invite");
 
   expect([before, after, neverMade]).toEqual([true, false, false]);
+});
+
+test("once there is an owner, the server command makes no more of the owner's Invites", async () => {
+  const server = await startTestServer();
+  const unused = await server.ownerInvite();
+  await server.device().signIn("alexey", await server.ownerInvite());
+
+  await expect(server.ownerInvite()).rejects.toThrow("already has an owner");
+  await expect(server.device().signIn("maria", unused)).rejects.toMatchObject({ refusal: "inviteUnusable" });
 });

@@ -47,7 +47,9 @@ export async function signIn(
     if (!inviteToken) return { refusal: "noInvite" };
     // Locked, so two people opening one Invite at once can't both get an account through it.
     const [invite] = await tx.select().from(invites).where(eq(invites.tokenHash, hashOf(inviteToken))).for("update");
-    if (!invite || invite.usedBy) return { refusal: "inviteUsed" };
+    if (!invite || invite.usedBy) return { refusal: "inviteUnusable" };
+    // GymLog has one owner; an owner's Invite left over once there is one gives nobody an account.
+    if (invite.makesOwner && (await hasOwner(tx))) return { refusal: "inviteUnusable" };
     const [user] = await tx.insert(users).values({ owner: invite.makesOwner }).returning();
     await tx.insert(identities).values({ ...identity, userId: user!.id });
     await tx
@@ -80,9 +82,7 @@ function starterExercises(ownerId: string) {
 
 /** A new Invite from the owner; returns its token, which goes into the Invite's link. */
 export async function createInvite(db: Database, ownerId: string): Promise<string> {
-  const token = newToken();
-  await db.insert(invites).values({ tokenHash: hashOf(token), createdBy: ownerId });
-  return token;
+  return insertInvite(db, { createdBy: ownerId });
 }
 
 /** Whether an Invite can still give someone an account: it was made and nobody has used it. */
@@ -96,9 +96,18 @@ export async function inviteUsable(db: Database, token: string): Promise<boolean
  * through it becomes the owner. Returns its token, which goes into the Invite's link.
  */
 export async function createOwnerInvite(db: Database): Promise<string> {
+  if (await hasOwner(db)) throw new Error("GymLog already has an owner, who creates Invites in the app");
+  return insertInvite(db, { makesOwner: true });
+}
+
+async function insertInvite(db: Database, invite: { createdBy?: string; makesOwner?: boolean }): Promise<string> {
   const token = newToken();
-  await db.insert(invites).values({ tokenHash: hashOf(token), makesOwner: true });
+  await db.insert(invites).values({ tokenHash: hashOf(token), ...invite });
   return token;
+}
+
+async function hasOwner(db: Pick<Database, "select">): Promise<boolean> {
+  return (await db.select({ id: users.id }).from(users).where(eq(users.owner, true)).limit(1)).length > 0;
 }
 
 /** A secret for a cookie or a link: long and random enough that nobody can guess it. */

@@ -8,7 +8,8 @@ import { workoutsHref } from "./useRoute.ts";
 const PROBLEM_TEXT: Record<SignInProblem, string> = {
   noInvite:
     "Этот аккаунт VK ещё не зарегистрирован в GymLog. Аккаунт создаётся только по приглашению — попросите ссылку у владельца.",
-  inviteUsed: "Это приглашение уже использовано. Если у вас уже есть аккаунт, войдите без него.",
+  inviteUnusable:
+    "Это приглашение уже использовано или недействительно. Если у вас уже есть аккаунт, войдите без него.",
   failed: "Не удалось войти через VK ID. Попробуйте ещё раз.",
   unavailable: "Вход через VK ID на этом сервере не настроен.",
 };
@@ -32,7 +33,7 @@ export function SignInScreen({
   const inviteUsable = useInviteUsable(journal, invite);
   // A used Invite can't help; someone with an account signs in without it.
   const signInInvite = inviteUsable === false ? undefined : invite;
-  const shownProblem = problem ?? (inviteUsable === false ? "inviteUsed" : undefined);
+  const shownProblem = problem ?? (inviteUsable === false ? "inviteUnusable" : undefined);
 
   return (
     <main className="page">
@@ -47,7 +48,9 @@ export function SignInScreen({
           {PROBLEM_TEXT[shownProblem]}
         </p>
       ) : invite !== undefined ? (
-        <p className="sign-in-text">Вас пригласили в GymLog. Войдите через VK ID — аккаунт создастся при первом входе.</p>
+        <p className="sign-in-text">
+          Вас пригласили в GymLog. Войдите через VK ID — аккаунт создастся при первом входе.
+        </p>
       ) : (
         <p className="sign-in-text">
           Войдите, чтобы начать. Тренировки хранятся на этом устройстве и синхронизируются с другими вашими

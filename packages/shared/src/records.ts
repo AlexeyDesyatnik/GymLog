@@ -112,12 +112,13 @@ export interface InviteCheck {
 
 /**
  * Why the server refused to sign someone in: nobody knows them and they came without an
- * Invite, or the Invite they came with is used up or was never made.
+ * Invite, or the Invite they came with can't give an account: it is used up or was never made.
  */
-export type SignInRefusal = "noInvite" | "inviteUsed";
+export type SignInRefusal = "noInvite" | "inviteUnusable";
 
 /**
  * Why signing in didn't work, as the app's sign-in screen says it: refused by the rules of
  * Invites, failed on the way through VK ID, or VK ID isn't set up on this server.
  */
-export type SignInProblem = SignInRefusal | "failed" | "unavailable";
+export const SIGN_IN_PROBLEMS = ["noInvite", "inviteUnusable", "failed", "unavailable"] as const;
+export type SignInProblem = (typeof SIGN_IN_PROBLEMS)[number];

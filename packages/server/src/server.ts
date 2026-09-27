@@ -123,14 +123,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
   const vk = options.vkId && vkId(options.vkId);
 
+  type VkStart = { Querystring: { invite?: unknown } };
   /**
    * Starts signing in with VK ID, through the Invite given, if any: sends the browser to VK ID,
    * remembering what checks its way back.
    */
-  type VkStart = { Querystring: { invite?: string } };
   app.get<VkStart>("/api/vk/start", async (request, reply) => {
     if (!vk) return reply.redirect(signInProblemPath("unavailable"));
-    const pending: PendingVkSignIn = { state: newToken(), codeVerifier: newToken(), invite: request.query.invite ?? null };
+    const { invite } = request.query;
+    const pending: PendingVkSignIn = {
+      state: newToken(),
+      codeVerifier: newToken(),
+      invite: typeof invite === "string" ? invite : null,
+    };
     reply.setCookie(VK_SIGN_IN_COOKIE, JSON.stringify(pending), {
       path: "/api/vk",
       httpOnly: true,
@@ -142,14 +147,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     return reply.redirect(vk.authorizeUrl(pending));
   });
 
+  type VkCallback = { Querystring: { code?: unknown; state?: unknown; device_id?: unknown } };
   /** Where VK ID sends the browser back: signs it in, then opens the app, or says why it wasn't. */
-  type VkCallback = { Querystring: { code?: string; state?: string; device_id?: string } };
   app.get<VkCallback>("/api/vk/callback", async (request, reply) => {
     const pending = pendingVkSignIn(request.cookies[VK_SIGN_IN_COOKIE]);
     reply.clearCookie(VK_SIGN_IN_COOKIE, { path: "/api/vk" });
     const { code, state, device_id: deviceId } = request.query;
     // A state that isn't the one this browser set off with is someone else's sign-in slipped in.
-    if (!vk || !pending || !code || !deviceId || state !== pending.state) {
+    if (!vk || !pending || typeof code !== "string" || typeof deviceId !== "string" || state !== pending.state) {
       return reply.redirect(signInProblemPath("failed"));
     }
     let subject: string;
@@ -270,7 +275,8 @@ function pendingVkSignIn(cookie: string | undefined): PendingVkSignIn | null {
   try {
     const pending = JSON.parse(cookie ?? "") as Partial<PendingVkSignIn>;
     if (typeof pending.state !== "string" || typeof pending.codeVerifier !== "string") return null;
-    return { state: pending.state, codeVerifier: pending.codeVerifier, invite: pending.invite ?? null };
+    const invite = typeof pending.invite === "string" ? pending.invite : null;
+    return { state: pending.state, codeVerifier: pending.codeVerifier, invite };
   } catch {
     return null;
   }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SignInProblem } from "@gymlog/shared";
+import { SIGN_IN_PROBLEMS, type SignInProblem } from "@gymlog/shared";
 
 export type Route =
   | { screen: "workouts" }
@@ -31,15 +31,17 @@ export function inviteLink(invite: string): string {
   return new URL(`#/invite/${invite}`, window.location.href).href;
 }
 
-/** The problems the server names when it sends the browser back to the app without signing it in. */
-const SIGN_IN_PROBLEMS: readonly SignInProblem[] = ["noInvite", "inviteUsed", "failed", "unavailable"];
-
 function parse(hash: string): Route {
   const workout = /^#\/workout\/([^/]+)$/.exec(hash);
   if (workout) return { screen: "workout", workoutId: decodeURIComponent(workout[1]!) };
   const invite = /^#\/invite\/([^/]+)$/.exec(hash);
   if (invite) return { screen: "signIn", invite: decodeURIComponent(invite[1]!) };
-  const problem = /^#\/sign-in\/([^/]+)$/.exec(hash)?.[1] as SignInProblem | undefined;
-  if (problem && SIGN_IN_PROBLEMS.includes(problem)) return { screen: "signIn", problem };
+  const problem = /^#\/sign-in\/([^/]+)$/.exec(hash)?.[1];
+  if (isSignInProblem(problem)) return { screen: "signIn", problem };
   return { screen: "workouts" };
+}
+
+/** One of the problems the server names when it sends the browser back to the app without signing it in. */
+function isSignInProblem(text: string | undefined): text is SignInProblem {
+  return (SIGN_IN_PROBLEMS as readonly (string | undefined)[]).includes(text);
 }

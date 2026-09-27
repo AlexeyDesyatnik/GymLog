@@ -155,8 +155,9 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
       await pull(userId);
       setState({ status: "synced", owner });
     } catch (error) {
-      // A device nobody has signed in on waits for its first sign-in, reachable or not.
-      if (!(await signedInBefore())) setState({ status: "neverSignedIn" });
+      // A device nobody has signed in on waits for its first sign-in, reachable or not. A store
+      // that can't say leaves the app as it is: the store's own state tells of that.
+      if (!(await signedInBefore().catch(() => true))) setState({ status: "neverSignedIn" });
       else if (error instanceof SignedOut) setState({ status: "signedOut" });
       else setState({ status: "failed", error: String(error) });
       if (!(error instanceof SignedOut)) throw error;
