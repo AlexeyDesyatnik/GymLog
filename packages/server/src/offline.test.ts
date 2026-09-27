@@ -7,7 +7,7 @@ async function phoneAndComputer() {
   const server = await startTestServer();
   const phone = server.device();
   const computer = server.device();
-  await phone.signIn("alexey");
+  await phone.signUp("alexey");
   await computer.signIn("alexey");
   return { server, phone, computer };
 }
@@ -58,10 +58,11 @@ test("a push cut off midway by the connection dropping is sent again once it is 
   const workout = await phone.journal.createWorkout(localDate("2026-09-27"));
   // The Workout, the Exercise, the Entry and 300 Sets: more records than one request carries.
   await phone.journal.setPlan(workout.id, "squat 100x5x300");
+  const beforeThePush = await pullAs(computer, server.url);
 
   phone.dropConnectionMidPush();
   await expect(phone.journal.sync.now()).rejects.toThrow("the connection dropped");
-  const beforeTheResend = await pullAs(computer, server.url);
+  const beforeTheResend = await pullAs(computer, server.url, beforeThePush.cursor);
   phone.goOnline();
   await phone.journal.sync.now();
   const afterTheResend = await pullAs(computer, server.url, beforeTheResend.cursor);

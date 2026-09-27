@@ -12,6 +12,7 @@ Node.js 24, npm and Docker Desktop. Docker must be running for `npm run dev` (it
 npm install         # once, after cloning or pulling new dependencies
 npm run dev         # start the database, the server and the app for development
 npm run db          # start only the dev database (PostgreSQL in Docker)
+npm run owner-invite  # create the owner's first Invite in the dev database and print its link
 npm test            # run the test suite
 npm run test:e2e    # run the end-to-end flows in a phone-sized Chromium
 npm run typecheck   # check types
@@ -23,7 +24,19 @@ After changing the server's database schema (`packages/server/src/db/schema.ts`)
 
 ## Signing in for development
 
-The dev server has a test sign-in, never present in production: at the bottom of the list of Workouts, type any name and tap «Войти». Every browser signed in with the same name is the same user, and its Workouts sync between them; a different name is a different user who sees none of them. The first user to sign in on a device takes the Workouts already recorded there.
+On first launch the app asks to sign in, and accounts come only from an Invite (ADR 0002). To set up the owner's account, run
+
+```bash
+npm run owner-invite
+```
+
+and open the link it prints. Whoever signs in through it becomes the owner, who then creates Invites for others at the bottom of the list of Workouts («Создать приглашение»). Each Invite gives one account; a user with an account signs in on any device without one.
+
+The dev server has a test sign-in in place of VK ID, never present in production: type any name and tap «Войти». Every browser signed in with the same name is the same user, and its Workouts sync between them; a different name is a different user, who needs an Invite for the first sign-in and sees none of the others' Workouts.
+
+### VK ID
+
+VK ID sign-in needs the app's registration with VK ID. Set `VK_ID_CLIENT_ID` (the app's ID) and `VK_ID_REDIRECT_URL` (the callback registered with VK ID, `http://localhost:5173/api/vk/callback` in development) in `packages/server/.env.development`. Without them, «Войти через VK ID» says it isn't set up, and only the test sign-in works. In production both are required.
 
 ## Opening the app from a phone
 
@@ -33,4 +46,4 @@ The dev server has a test sign-in, never present in production: at the bottom of
 
 If the phone can't connect on Windows, allow Node.js through Windows Defender Firewall for private networks (Windows usually asks the first time the dev server starts), and check that the Wi-Fi network is set to Private.
 
-Data recorded this way lives only in that phone's browser until you sign in.
+The phone signs in like any other device. VK ID sends the browser back only to the address registered with it, so on the phone use the test sign-in unless that address is the one the phone opens.

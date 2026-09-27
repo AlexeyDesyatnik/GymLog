@@ -1,24 +1,34 @@
-import { useState, useSyncExternalStore, type FormEvent } from "react";
+import { useState, useSyncExternalStore } from "react";
 import type { Journal } from "../journal/journal.ts";
+import { SignInButtons } from "./SignIn.tsx";
+import { inviteLink } from "./useRoute.ts";
 
-const SIGNED_OUT = "Вы не вошли: тренировки хранятся только на этом устройстве.";
-
-/** Whether this device's records reach the user's other devices, and the way to sign in. */
+/** Whether this device's records reach the user's other devices, the way to sign in again, and Invites for the owner. */
 export function SyncStatus({ journal }: { journal: Journal }) {
   const state = useSyncExternalStore(journal.sync.onStateChange, journal.sync.state);
   switch (state.status) {
     case "off":
+    case "checking":
+    case "neverSignedIn":
     case "starting":
       return null;
     case "signedOut":
-      // Only the dev server has the test sign-in; VK ID sign-in comes later.
-      return import.meta.env.DEV ? (
-        <TestSignIn journal={journal} />
-      ) : (
-        <p className="sync-status">{SIGNED_OUT}</p>
+      return (
+        <section className="sync-sign-in sign-in">
+          <p className="sync-status">
+            Вход на этом устройстве закончился. Всё записанное сохранено здесь и отправится на сервер, когда вы
+            войдёте снова.
+          </p>
+          <SignInButtons journal={journal} />
+        </section>
       );
     case "synced":
-      return <p className="sync-status">Синхронизировано с другими устройствами.</p>;
+      return (
+        <>
+          <p className="sync-status">Синхронизировано с другими устройствами.</p>
+          {state.owner && <InviteCreator journal={journal} />}
+        </>
+      );
     case "otherUser":
       return (
         <p className="sync-status">
@@ -34,45 +44,62 @@ export function SyncStatus({ journal }: { journal: Journal }) {
   }
 }
 
-/** Sign-in by name alone, so two browsers can act as one user or as two, in development only. */
-function TestSignIn({ journal }: { journal: Journal }) {
-  const [name, setName] = useState("");
+/** The owner creates an Invite and sends its link to the person invited. */
+function InviteCreator({ journal }: { journal: Journal }) {
+  const [link, setLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  async function signIn(event: FormEvent) {
-    event.preventDefault();
+  async function create() {
     setError(null);
+    setCopied(false);
     try {
-      await journal.sync.testSignIn(name.trim());
+      setLink(inviteLink(await journal.sync.createInvite()));
     } catch (failure) {
       setError(String(failure));
     }
   }
 
+  async function copy(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch {
+      // Without the clipboard, the link is there to select by hand.
+    }
+  }
+
   return (
-    <form className="create sync-sign-in" onSubmit={signIn}>
-      <label className="field">
-        <span className="field-label">Тестовый вход: имя пользователя</span>
-        <input
-          className="text-input"
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          autoComplete="off"
-          autoCapitalize="none"
-          spellCheck={false}
-        />
-      </label>
-      <button className="button" type="submit" disabled={!name.trim()}>
-        Войти
+    <section className="invite">
+      <button className="button" type="button" onClick={() => void create()}>
+        Создать приглашение
       </button>
-      {error === null ? (
-        <p className="sync-status">{SIGNED_OUT}</p>
-      ) : (
+      {error !== null && (
         <p className="sync-status" role="alert">
-          Не удалось войти: {error}
+          Не удалось создать приглашение: {error}
         </p>
       )}
-    </form>
+      {link !== null && (
+        <>
+          <p className="invite-link">{link}</p>
+          <p className="hint">Ссылка одноразовая: по ней один человек создаст аккаунт, войдя через VK ID.</p>
+          <div className="actions">
+            {"share" in navigator && (
+              <button
+                className="button primary"
+                type="button"
+                // Closing the share sheet without sending isn't a failure.
+                onClick={() => void navigator.share({ title: "Приглашение в GymLog", url: link }).catch(() => {})}
+              >
+                Отправить
+              </button>
+            )}
+            <button className="button" type="button" onClick={() => void copy(link)}>
+              {copied ? "Скопировано" : "Скопировать"}
+            </button>
+          </div>
+        </>
+      )}
+    </section>
   );
 }

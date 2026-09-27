@@ -7,11 +7,11 @@ test("a Workout planned on one device appears on the user's other device", async
   const server = await startTestServer();
   const phone = server.device();
   const computer = server.device();
-  await phone.signIn("alexey");
+  await phone.signUp("alexey");
   await computer.signIn("alexey");
 
   const workout = await computer.journal.createWorkout(localDate("2026-09-27"));
-  await computer.journal.setPlan(workout.id, "squat 100x5x3\nbench press 80x5");
+  await computer.journal.setPlan(workout.id, "squat 100x5x3\nzercher squat 80x5");
   await computer.journal.sync.now();
   await phone.journal.sync.now();
 
@@ -19,7 +19,7 @@ test("a Workout planned on one device appears on the user's other device", async
   expect(arrived).toMatchObject({
     date: "2026-09-27",
     finished: false,
-    planNotation: "squat 100x5x3\nbench press 80x5",
+    planNotation: "squat 100x5x3\nzercher squat 80x5",
   });
 });
 
@@ -30,9 +30,9 @@ test("records made on a device before anyone signed in are sent as the records o
   const entry = await phone.journal.addEntry(workout.id, "pull-up");
   await phone.journal.addPerformedSet(entry.id, { weight: null, reps: 8 });
   await phone.journal.sync.now();
-  expect(phone.journal.sync.state()).toEqual({ status: "signedOut" });
+  expect(phone.journal.sync.state()).toEqual({ status: "neverSignedIn" });
 
-  await phone.signIn("alexey");
+  await phone.signUp("alexey");
   const computer = server.device();
   await computer.signIn("alexey");
 
@@ -48,7 +48,7 @@ test("records kept on a device from before sync existed are sent once a user sig
   const workoutId = await storeFromBeforeSync(store);
   const phone = server.device(store);
 
-  await phone.signIn("alexey");
+  await phone.signUp("alexey");
   const computer = server.device();
   await computer.signIn("alexey");
 
@@ -59,7 +59,7 @@ test("records kept on a device from before sync existed are sent once a user sig
 test("records sent again change nothing on the server", async () => {
   const server = await startTestServer();
   const phone = server.device();
-  await phone.signIn("alexey");
+  await phone.signUp("alexey");
   const workout = await phone.journal.createWorkout(localDate("2026-09-27"));
   await phone.journal.setPlan(workout.id, "squat 100x5x3");
   await phone.journal.sync.now();
@@ -76,7 +76,7 @@ test("a change whose answer from the server was lost is sent again, and reaches 
   const server = await startTestServer();
   const phone = server.device();
   const computer = server.device();
-  await phone.signIn("alexey");
+  await phone.signUp("alexey");
   await computer.signIn("alexey");
   const workout = await phone.journal.createWorkout(localDate("2026-09-27"));
   const entry = await phone.journal.addEntry(workout.id, "squat");
@@ -113,7 +113,7 @@ test("a change is sent by itself shortly after it is made", async () => {
   const server = await startTestServer();
   const phone = server.device();
   const computer = server.device();
-  await phone.signIn("alexey");
+  await phone.signUp("alexey");
   await computer.signIn("alexey");
 
   const workout = await phone.journal.createWorkout(localDate("2026-09-27"));
@@ -126,7 +126,7 @@ test("changes not sent when the app was closed are sent by themselves when it op
   const server = await startTestServer();
   const phone = server.device();
   const computer = server.device();
-  await phone.signIn("alexey");
+  await phone.signUp("alexey");
   await computer.signIn("alexey");
   const workout = await phone.journal.createWorkout(localDate("2026-09-27"));
 
@@ -139,7 +139,7 @@ test("a device hears when records from another device arrive, and only then", as
   const server = await startTestServer();
   const phone = server.device();
   const computer = server.device();
-  await phone.signIn("alexey");
+  await phone.signUp("alexey");
   await computer.signIn("alexey");
   let arrivals = 0;
   phone.journal.sync.onRecordsArrived(() => arrivals++);

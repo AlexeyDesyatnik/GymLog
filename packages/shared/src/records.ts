@@ -92,3 +92,32 @@ export interface PullAnswer {
   /** More records wait after this page. */
   more: boolean;
 }
+
+/** Who is signed in on a device, as the server knows from its session. */
+export interface SessionAnswer {
+  userId: string;
+  /** The owner of GymLog, who alone creates Invites. */
+  owner: boolean;
+}
+
+/** A new Invite the owner created: the token that goes into its link. */
+export interface InviteAnswer {
+  invite: string;
+}
+
+/** Whether an Invite can still give someone an account: it was made and nobody has used it. */
+export interface InviteCheck {
+  usable: boolean;
+}
+
+/**
+ * Why the server refused to sign someone in: nobody knows them and they came without an
+ * Invite, or the Invite they came with is used up or was never made.
+ */
+export type SignInRefusal = "noInvite" | "inviteUsed";
+
+/**
+ * Why signing in didn't work, as the app's sign-in screen says it: refused by the rules of
+ * Invites, failed on the way through VK ID, or VK ID isn't set up on this server.
+ */
+export type SignInProblem = SignInRefusal | "failed" | "unavailable";

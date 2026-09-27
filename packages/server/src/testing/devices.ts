@@ -3,6 +3,7 @@ import pg from "pg";
 import type { PushAnswer, SyncRecord } from "@gymlog/shared";
 import { openJournal, type Journal } from "@gymlog/client/journal";
 import { uniqueJournalName } from "@gymlog/client/testing";
+import { createOwnerInvite, openDatabase } from "../accounts.ts";
 import { startServer } from "../server.ts";
 
 /** The real server on a database of its own, with the test sign-in. */
@@ -13,13 +14,23 @@ export interface TestServer {
    * the one of this name when given.
    */
   device(store?: string): Device;
+  /** The owner's own first Invite, as the server command that sets GymLog up gives it. */
+  ownerInvite(): Promise<string>;
 }
 
 /** One browser: a Journal on its own local store and a cookie jar of its own. */
 export interface Device {
   journal: Journal;
-  /** Signs this device in with the test sign-in, as the user of this name, and syncs. */
-  signIn(name: string): Promise<void>;
+  /**
+   * Signs this device in with the test sign-in in place of VK ID, as the person of this name,
+   * through this Invite if given, and syncs.
+   */
+  signIn(name: string, invite?: string): Promise<void>;
+  /**
+   * Signs this device in as a new user of this name, who gets an account through a fresh
+   * Invite from the owner, and syncs.
+   */
+  signUp(name: string): Promise<void>;
   /** Requests to the server as this device, carrying its session cookie. */
   fetch: typeof fetch;
   /** The server gets this device's next request, but its answer is lost on the way back. */
@@ -51,8 +62,21 @@ let databaseCount = 0;
 /** Starts the server on a fresh database; it stops, with its devices, when the test ends. */
 export async function startTestServer(): Promise<TestServer> {
   const databaseUrl = await createDatabase();
-  const server = await startServer({ databaseUrl, host: "127.0.0.1", port: 0, testSignIn: true });
+  const server = await startServer({ databaseUrl, host: "127.0.0.1", port: 0, testSignIn: true, vkId: null });
   onTestFinished(() => server.close());
+  const database = await openDatabase(databaseUrl);
+  onTestFinished(() => database.close());
+  const ownerInvite = () => createOwnerInvite(database.db);
+  /** The owner who invites the users of the test; signed in on a device of their own once needed. */
+  let owner: Promise<Device> | undefined;
+  async function inviteFromOwner(): Promise<string> {
+    owner ??= (async () => {
+      const ownersDevice = openDevice(uniqueJournalName(), deviceConnection(), tickingClock());
+      await ownersDevice.signIn("the owner", await ownerInvite());
+      return ownersDevice;
+    })();
+    return (await owner).journal.sync.createInvite();
+  }
 
   /** A browser with this local store, connection and clock, where the app has just opened. */
   function openDevice(store: string, connection: Connection, clock: Clock): Device {
@@ -70,7 +94,8 @@ export async function startTestServer(): Promise<TestServer> {
     return {
       ...connection.control,
       journal,
-      signIn: (name) => journal.sync.testSignIn(name),
+      signIn: (name, invite) => journal.sync.testSignIn(name, invite),
+      signUp: async (name) => journal.sync.testSignIn(name, await inviteFromOwner()),
       fetch: connection.fetch,
       setClock: clock.set,
       reopen: () => {
@@ -85,6 +110,7 @@ export async function startTestServer(): Promise<TestServer> {
     device(store = uniqueJournalName()) {
       return openDevice(store, deviceConnection(), tickingClock());
     },
+    ownerInvite,
   };
 }
 

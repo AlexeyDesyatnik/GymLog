@@ -839,3 +839,47 @@ a.workout-link:focus-visible {
   padding-top: 16px;
   border-top: 1px solid var(--line);
 }
+
+.sign-in {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* A link that leaves for VK ID, looking like the app's buttons. */
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.sign-in-text,
+.sign-in-problem {
+  margin: 0;
+}
+
+.sign-in-problem {
+  padding: 12px 14px;
+  background: var(--danger-soft);
+  border-radius: 10px;
+}
+
+.invite {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.invite-link {
+  margin: 0;
+  max-width: 100%;
+  padding: 8px 10px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  user-select: all;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}

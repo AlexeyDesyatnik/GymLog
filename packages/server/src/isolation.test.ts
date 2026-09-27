@@ -5,16 +5,20 @@ import { pullAs, pushAs, startTestServer, userIdOf } from "./testing/devices.ts"
 test("a user's records never reach another user's device", async () => {
   const server = await startTestServer();
   const alexeysPhone = server.device();
-  await alexeysPhone.signIn("alexey");
+  await alexeysPhone.signUp("alexey");
   const workout = await alexeysPhone.journal.createWorkout(localDate("2026-09-27"));
   await alexeysPhone.journal.setPlan(workout.id, "squat 100x5x3");
   await alexeysPhone.journal.sync.now();
 
   const mariasPhone = server.device();
-  await mariasPhone.signIn("maria");
+  await mariasPhone.signUp("maria");
+  const mariasId = await userIdOf(mariasPhone, server.url);
 
   expect(await mariasPhone.journal.listWorkouts()).toEqual([]);
-  expect(await pullAs(mariasPhone, server.url)).toMatchObject({ status: 200, records: [] });
+  // Only her own records, her Starter list among them.
+  const pulled = await pullAs(mariasPhone, server.url);
+  expect(pulled.status).toBe(200);
+  expect(pulled.records.filter((r) => r.ownerId !== mariasId)).toEqual([]);
 });
 
 /** A Workout record as a device sends it. */
@@ -25,10 +29,10 @@ function workoutRecord(fields: { id: string; ownerId: string; date: string }) {
 test("a record sent as another user's is refused, and never reaches that user", async () => {
   const server = await startTestServer();
   const alexeysPhone = server.device();
-  await alexeysPhone.signIn("alexey");
+  await alexeysPhone.signUp("alexey");
   const alexeysId = await userIdOf(alexeysPhone, server.url);
   const mariasPhone = server.device();
-  await mariasPhone.signIn("maria");
+  await mariasPhone.signUp("maria");
 
   const id = crypto.randomUUID();
   const { answer } = await pushAs(mariasPhone, server.url, [
@@ -43,12 +47,13 @@ test("a record sent as another user's is refused, and never reaches that user", 
 test("another user's record can't be changed by sending a record with its id", async () => {
   const server = await startTestServer();
   const alexeysPhone = server.device();
-  await alexeysPhone.signIn("alexey");
+  await alexeysPhone.signUp("alexey");
   const workout = await alexeysPhone.journal.createWorkout(localDate("2026-09-27"));
   await alexeysPhone.journal.sync.now();
   const mariasPhone = server.device();
-  await mariasPhone.signIn("maria");
+  await mariasPhone.signUp("maria");
   const mariasId = await userIdOf(mariasPhone, server.url);
+  const { cursor } = await pullAs(mariasPhone, server.url);
 
   const { answer } = await pushAs(mariasPhone, server.url, [
     workoutRecord({ id: workout.id, ownerId: mariasId, date: "2026-01-01" }),
@@ -58,13 +63,13 @@ test("another user's record can't be changed by sending a record with its id", a
 
   expect(answer.refused.map((r) => r.id)).toEqual([workout.id]);
   expect((await alexeysComputer.journal.getWorkout(workout.id))?.date).toBe("2026-09-27");
-  expect((await pullAs(mariasPhone, server.url)).records).toEqual([]);
+  expect((await pullAs(mariasPhone, server.url, cursor)).records).toEqual([]);
 });
 
 test("a device nobody is signed in on can neither read nor send records", async () => {
   const server = await startTestServer();
   const alexeysPhone = server.device();
-  await alexeysPhone.signIn("alexey");
+  await alexeysPhone.signUp("alexey");
   await alexeysPhone.journal.createWorkout(localDate("2026-09-27"));
   await alexeysPhone.journal.sync.now();
   const alexeysId = await userIdOf(alexeysPhone, server.url);
@@ -85,10 +90,10 @@ test("a device nobody is signed in on can neither read nor send records", async 
 test("a device holding one user's records never sends them as the records of another user signed in there", async () => {
   const server = await startTestServer();
   const sharedComputer = server.device();
-  await sharedComputer.signIn("alexey");
+  await sharedComputer.signUp("alexey");
   await sharedComputer.journal.createWorkout(localDate("2026-09-27"));
 
-  await sharedComputer.signIn("maria");
+  await sharedComputer.signUp("maria");
   const mariasPhone = server.device();
   await mariasPhone.signIn("maria");
 

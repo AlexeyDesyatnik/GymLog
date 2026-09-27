@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
+import { newUserName, signUp } from "./signIn.ts";
 
-test("plan a Workout, confirm Sets and Finish it: what wasn't recorded is Not performed", async ({ page }) => {
-  await page.goto("/");
+test("plan a Workout, confirm Sets and Finish it: what wasn't recorded is Not performed", async ({ page, baseURL }) => {
+  await signUp(page, baseURL!, newUserName("finish"));
   await page.getByRole("button", { name: "Новая тренировка" }).click();
   await page.getByRole("link", { name: /сегодня/ }).click();
 
@@ -12,7 +13,8 @@ test("plan a Workout, confirm Sets and Finish it: what wasn't recorded is Not pe
   const entry = (name: string) =>
     page.getByRole("listitem").filter({ has: page.getByRole("heading", { name, exact: true }) });
   const squat = entry("squat");
-  const bench = entry("bench press");
+  // From the Starter list, shown by its Primary name.
+  const bench = entry("Bench press");
   await squat.getByRole("button", { name: "✓ Сделано" }).click();
   await expect(squat.getByRole("button", { name: /^Подход 1:/ })).toBeVisible();
   await squat.getByRole("button", { name: "✓ Сделано" }).click();

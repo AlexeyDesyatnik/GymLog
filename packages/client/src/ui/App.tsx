@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ChangeNotSaved, type Journal } from "../journal/journal.ts";
+import { SignInScreen } from "./SignIn.tsx";
 import { StoreProblem, type StoreProblemState } from "./StoreProblem.tsx";
 import { useRoute } from "./useRoute.ts";
 import { useToday } from "./useToday.ts";
@@ -10,6 +11,7 @@ export function App({ journal }: { journal: Journal }) {
   const route = useRoute();
   const today = useToday();
   const store = useSyncExternalStore(journal.onStoreStateChange, journal.storeState);
+  const sync = useSyncExternalStore(journal.sync.onStateChange, journal.sync.state);
   const slowOpening = useSlowOpening(store.status === "opening");
   const failure = useUnhandledFailure();
 
@@ -19,7 +21,15 @@ export function App({ journal }: { journal: Journal }) {
   if (store.status === "opening") return slowOpening ? <StoreProblem problem={{ status: "blocked" }} /> : null;
   if (store.status !== "ready") return <StoreProblem problem={store} />;
   if (failure !== null) return <StoreProblem problem={failure} />;
+  // A moment, while the store says whether anyone has signed in here.
+  if (sync.status === "checking") return null;
 
+  // Nothing is recorded before the first sign-in, so every record has an owner.
+  const firstLaunch = sync.status === "neverSignedIn";
+  if (firstLaunch || route.screen === "signIn") {
+    const { invite, problem } = route.screen === "signIn" ? route : {};
+    return <SignInScreen journal={journal} invite={invite} problem={problem} firstLaunch={firstLaunch} />;
+  }
   return route.screen === "workout" ? (
     <WorkoutScreen key={route.workoutId} journal={journal} workoutId={route.workoutId} today={today} />
   ) : (

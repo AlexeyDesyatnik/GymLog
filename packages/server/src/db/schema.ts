@@ -1,14 +1,43 @@
 import { sql } from "drizzle-orm";
-import { bigint, index, jsonb, pgSequence, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  boolean,
+  index,
+  jsonb,
+  pgSequence,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** The owner of GymLog, who alone creates Invites. */
+  owner: boolean("owner").notNull().default(false),
 });
 
 /**
- * How a user signs in: a provider and the user's id there. The test sign-in is the provider
- * "test" with the name typed; VK ID comes later as another provider.
+ * One-time links through which a new user gets an account. Only a hash of each Invite's token
+ * is kept, like a session's.
+ */
+export const invites = pgTable("invites", {
+  tokenHash: text("token_hash").primaryKey(),
+  /** The owner who created it; null for the owner's own first Invite, made by the server command. */
+  createdBy: uuid("created_by").references(() => users.id),
+  /** The account it creates is the owner's. */
+  makesOwner: boolean("makes_owner").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** The user whose account it created; null while it is unused. */
+  usedBy: uuid("used_by").references(() => users.id),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+});
+
+/**
+ * How a user signs in: a provider and the user's id there. VK ID is the provider "vk" with the
+ * VK user id; the test sign-in is the provider "test" with the name typed.
  */
 export const identities = pgTable(
   "identities",

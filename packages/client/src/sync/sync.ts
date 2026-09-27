@@ -1,9 +1,13 @@
 import {
   RECORD_TYPES,
   replacesKept,
+  type InviteAnswer,
+  type InviteCheck,
   type PullAnswer,
   type PushAnswer,
   type RecordType,
+  type SessionAnswer,
+  type SignInRefusal,
   type SyncedRecord,
 } from "@gymlog/shared";
 import { recordTable, writeAsSync, type JournalDb, type Unsynced } from "../journal/store.ts";
@@ -12,12 +16,16 @@ import { recordTable, writeAsSync, type JournalDb, type Unsynced } from "../jour
 export type SyncState =
   /** No server to sync with: the records stay on this device. */
   | { status: "off" }
+  /** Whether anyone has signed in on this device isn't read from the store yet; it takes a moment. */
+  | { status: "checking" }
+  /** Nobody has ever signed in on this device, so the app asks to sign in before anything is recorded. */
+  | { status: "neverSignedIn" }
   /** Not synced yet since the app opened. */
   | { status: "starting" }
-  /** Nobody is signed in on this device, so its records wait here. */
+  /** The user's session on this device has ended, so its records wait here until they sign in again. */
   | { status: "signedOut" }
-  /** The last sync went through. */
-  | { status: "synced" }
+  /** The last sync went through; the user signed in is the owner, or not. */
+  | { status: "synced"; owner: boolean }
   /** The records on this device belong to another user than the one signed in, so nothing is synced. */
   | { status: "otherUser" }
   /** The last sync failed, e.g. with no connection; the records wait on this device. */
@@ -35,8 +43,21 @@ export interface Sync {
   onRecordsArrived(listener: () => void): () => void;
   /** Syncs now: sends every change made here, then takes every change from elsewhere. Rejects when it fails. */
   now(): Promise<void>;
-  /** Signs this device in by name alone, then syncs. Only the dev and test server allows it. */
-  testSignIn(name: string): Promise<void>;
+  /**
+   * Where the browser goes to sign in with VK ID, through this Invite if given. The server
+   * brings it back to the app signed in, or to the sign-in screen saying why not.
+   */
+  vkSignInUrl(invite?: string): string;
+  /**
+   * Signs this device in by name alone, in place of VK ID, through this Invite if given, then
+   * syncs. Rejects with SignInRefused when the rules of Invites keep this person out. Only the
+   * dev and test server allows it.
+   */
+  testSignIn(name: string, invite?: string): Promise<void>;
+  /** Creates an Invite and returns its token, for its link. Only the owner may; rejects for anyone else. */
+  createInvite(): Promise<string>;
+  /** Whether an Invite can still give someone an account: it was made and nobody has used it. */
+  inviteUsable(invite: string): Promise<boolean>;
 }
 
 export interface SyncOptions {
@@ -77,8 +98,16 @@ const TIMEOUT_MS = 20_000;
 /** The server refused the session: nobody is signed in on this device. */
 class SignedOut extends Error {}
 
+/** The server wouldn't sign this person in; the refusal says why. */
+export class SignInRefused extends Error {
+  constructor(readonly refusal: SignInRefusal) {
+    super(`Sign-in refused: ${refusal}`);
+    this.name = "SignInRefused";
+  }
+}
+
 export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncControl {
-  let state: SyncState = options ? { status: "starting" } : { status: "off" };
+  let state: SyncState = options ? { status: "checking" } : { status: "off" };
   const stateListeners = new Set<() => void>();
   const arrivalListeners = new Set<() => void>();
   let closed = false;
@@ -108,7 +137,11 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
       signal: AbortSignal.timeout(options!.timeoutMs ?? TIMEOUT_MS),
     });
     if (response.status === 401) throw new SignedOut();
-    if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
+    if (!response.ok) {
+      const text = await response.text();
+      const refusal = response.status === 403 ? refusalIn(text) : undefined;
+      throw refusal ? new SignInRefused(refusal) : new Error(`${path}: ${response.status} ${text}`);
+    }
     return (await response.json()) as T;
   }
 
@@ -116,16 +149,23 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
   async function round(): Promise<void> {
     if (closed) return;
     try {
-      const { userId } = await api<{ userId: string }>("/api/session");
+      const { userId, owner } = await api<SessionAnswer>("/api/session");
       if ((await claim(userId)) !== userId) return setState({ status: "otherUser" });
       await push(userId);
       await pull(userId);
-      setState({ status: "synced" });
+      setState({ status: "synced", owner });
     } catch (error) {
-      if (error instanceof SignedOut) return setState({ status: "signedOut" });
-      setState({ status: "failed", error: String(error) });
-      throw error;
+      // A device nobody has signed in on waits for its first sign-in, reachable or not.
+      if (!(await signedInBefore())) setState({ status: "neverSignedIn" });
+      else if (error instanceof SignedOut) setState({ status: "signedOut" });
+      else setState({ status: "failed", error: String(error) });
+      if (!(error instanceof SignedOut)) throw error;
     }
+  }
+
+  /** Someone has signed in on this device: its records belong to them. */
+  async function signedInBefore(): Promise<boolean> {
+    return (await db.syncProgress.get("sync")) !== undefined;
   }
 
   /** The owner of this device's records; the first user to sign in here becomes it, with every record made before. */
@@ -220,7 +260,7 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
   /** Looks for changes from other devices, while the app is in view and someone is signed in. */
   function poll() {
     // Signing in syncs by itself; until then there is nothing to look for.
-    if (state.status === "signedOut" || state.status === "otherUser") return;
+    if (state.status === "neverSignedIn" || state.status === "signedOut" || state.status === "otherUser") return;
     if (typeof document === "undefined" || document.visibilityState === "visible") syncSoon();
   }
 
@@ -235,13 +275,32 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
       return () => arrivalListeners.delete(listener);
     },
     now,
-    async testSignIn(name) {
+    vkSignInUrl(invite) {
+      const query = invite === undefined ? "" : `?invite=${encodeURIComponent(invite)}`;
+      return `${options?.url ?? ""}/api/vk/start${query}`;
+    },
+    async testSignIn(name, invite) {
       if (!options) throw new Error("There is no server to sign in to");
-      await api("/api/test-sign-in", { name });
+      await api("/api/test-sign-in", { name, invite });
       await now();
+    },
+    async createInvite() {
+      if (!options) throw new Error("There is no server to create an Invite on");
+      return (await api<InviteAnswer>("/api/invites", {})).invite;
+    },
+    async inviteUsable(invite) {
+      if (!options) throw new Error("There is no server to check an Invite on");
+      return (await api<InviteCheck>(`/api/invites/${encodeURIComponent(invite)}`)).usable;
     },
     start() {
       if (!options || closed) return;
+      // Read at once, so the app can ask for the first sign-in without waiting for the server.
+      void signedInBefore().then(
+        (before) => {
+          if (state.status === "checking") setState({ status: before ? "starting" : "neverSignedIn" });
+        },
+        () => {},
+      );
       syncSoon();
       pollTimer = setInterval(poll, POLL_MS);
       if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisible);
@@ -286,4 +345,13 @@ function sameValue(a: unknown, b: unknown): boolean {
   if (Array.isArray(a) !== Array.isArray(b)) return false;
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
   return [...keys].every((key) => sameValue((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]));
+}
+
+/** The reason in the server's answer refusing a sign-in, if it is one. */
+function refusalIn(answer: string): SignInRefusal | undefined {
+  try {
+    return (JSON.parse(answer) as { refusal?: SignInRefusal }).refusal;
+  } catch {
+    return undefined;
+  }
 }

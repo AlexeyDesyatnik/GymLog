@@ -8,7 +8,7 @@ async function setRecordOn(
   values: { kind: "planned" | "performed"; reps: number; rpe: number | null },
 ) {
   const phone = server.device();
-  await phone.signIn("alexey");
+  await phone.signUp("alexey");
   const record = {
     type: "set",
     id: crypto.randomUUID(),
@@ -62,7 +62,7 @@ test("a Plan with a Rep range and Target RPEs reaches the other device as writte
   const server = await startTestServer();
   const phone = server.device();
   const computer = server.device();
-  await phone.signIn("alexey");
+  await phone.signUp("alexey");
   await computer.signIn("alexey");
 
   const workout = await computer.journal.createWorkout(localDate("2026-09-27"));

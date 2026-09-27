@@ -10,7 +10,7 @@ async function phoneAndComputerOffline() {
   const server = await startTestServer();
   const phone = server.device();
   const computer = server.device();
-  await phone.signIn("alexey");
+  await phone.signUp("alexey");
   await computer.signIn("alexey");
   const workout = await phone.journal.createWorkout(localDate("2026-09-27"));
   const entry = await phone.journal.addEntry(workout.id, "squat");
@@ -105,7 +105,7 @@ test.each(["first", "last"] as const)(
 test("a deleted Workout isn't brought back by its records sent again as they were before the delete", async () => {
   const server = await startTestServer();
   const phone = server.device();
-  await phone.signIn("alexey");
+  await phone.signUp("alexey");
   const workout = await phone.journal.createWorkout(localDate("2026-09-27"));
   await phone.journal.setPlan(workout.id, "squat 100x5x3");
   await phone.journal.sync.now();
