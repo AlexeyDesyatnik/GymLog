@@ -8,6 +8,7 @@ import {
   toExercise,
   toPerformedSet,
 } from "./entryView.ts";
+import { openSync, type Sync, type SyncOptions, type SyncState } from "../sync/sync.ts";
 import { newId } from "./ids.ts";
 import {
   changeableEntry,
@@ -24,7 +25,7 @@ import {
   type StoreState,
 } from "./store.ts";
 
-export type { StoreState };
+export type { StoreState, Sync, SyncState };
 
 export interface Workout {
   id: string;
@@ -162,6 +163,8 @@ export interface Journal {
    * without a line stays for its Performed Sets or is removed. Refused for a Finished Workout.
    */
   setPlan(workoutId: string, notation: string): Promise<PlanLine[]>;
+  /** Keeps the records here and on the user's other devices in step, by way of the server. */
+  readonly sync: Sync;
   close(): void;
 }
 
@@ -211,19 +214,26 @@ const CHANGES: {
   setRpe: true,
   setComment: true,
   setPlan: true,
+  sync: false,
   close: false,
 };
 
-/** The Journal, with each failed change rejecting as ChangeNotSaved. */
-function reportingUnsavedChanges(journal: Journal): Journal {
+/** The Journal, with each failed change rejecting as ChangeNotSaved, and each saved one reported. */
+function reportingChanges(journal: Journal, onSaved: () => void): Journal {
   const reporting: Record<string, unknown> = { ...journal };
   for (const [name, changes] of Object.entries(CHANGES)) {
     if (!changes) continue;
     const change = journal[name as keyof Journal] as (...args: unknown[]) => Promise<unknown>;
     reporting[name] = (...args: unknown[]) =>
-      change(...args).catch((error: unknown) => {
-        throw error instanceof OwnExerciseRefusal ? error : new ChangeNotSaved(error);
-      });
+      change(...args).then(
+        (result) => {
+          onSaved();
+          return result;
+        },
+        (error: unknown) => {
+          throw error instanceof OwnExerciseRefusal ? error : new ChangeNotSaved(error);
+        },
+      );
   }
   return reporting as unknown as Journal;
 }
@@ -238,9 +248,11 @@ export interface JournalOptions {
   name?: string;
   /** Device clock in milliseconds. */
   now?: () => number;
+  /** The server to sync with; without one, the records stay on this device. */
+  server?: SyncOptions;
 }
 
-export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions = {}): Journal {
+export function openJournal({ name = "gymlog", now = Date.now, server }: JournalOptions = {}): Journal {
   let currentStoreState: StoreState = { status: "opening" };
   const storeStateListeners = new Set<() => void>();
   let closed = false;
@@ -249,7 +261,9 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     if (closed) return;
     currentStoreState = state;
     for (const listener of storeStateListeners) listener();
+    if (state.status === "ready") sync.start();
   });
+  const sync = openSync(db, server);
 
   /** The fields every new record starts with. */
   function newRecord(): SyncedRecord {
@@ -283,7 +297,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
     return toPerformedSet(set);
   }
 
-  return reportingUnsavedChanges({
+  return reportingChanges({
     storeState: () => currentStoreState,
 
     onStoreStateChange(listener) {
@@ -569,11 +583,14 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
       return lines;
     },
 
+    sync,
+
     close() {
       closed = true;
+      sync.close();
       db.close();
     },
-  });
+  }, sync.changed);
 }
 
 /** The Exercise of the live Substitute performed instead of this Entry, if there is one. */

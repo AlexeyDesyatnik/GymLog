@@ -1,13 +1,48 @@
-import { Dexie, type EntityTable } from "dexie";
-import type { EntryRecord, ExerciseRecord, SetRecord, WorkoutRecord } from "@gymlog/shared";
+import { Dexie, type EntityTable, type Table, type Transaction } from "dexie";
+import type { EntryRecord, ExerciseRecord, RecordType, SetRecord, SyncedRecord, WorkoutRecord } from "@gymlog/shared";
+
+/**
+ * How a record is kept on the device: 1 while it has a change the server hasn't taken yet.
+ * Every write marks it, except a write by sync itself (see syncWrites).
+ */
+export interface Unsynced {
+  unsynced?: 0 | 1;
+}
+
+/** What sync keeps on the device, in one row. */
+export interface SyncProgress {
+  key: "sync";
+  /** The user this device's records belong to: whoever signed in first. */
+  ownerId: string;
+  /** The server's sequence number of the last record pulled. */
+  cursor: number;
+}
 
 /** The Journal's local store: one IndexedDB database of synced records. */
 export type JournalDb = Dexie & {
-  workouts: EntityTable<WorkoutRecord, "id">;
-  exercises: EntityTable<ExerciseRecord, "id">;
-  entries: EntityTable<EntryRecord, "id">;
-  sets: EntityTable<SetRecord, "id">;
+  workouts: EntityTable<WorkoutRecord & Unsynced, "id">;
+  exercises: EntityTable<ExerciseRecord & Unsynced, "id">;
+  entries: EntityTable<EntryRecord & Unsynced, "id">;
+  sets: EntityTable<SetRecord & Unsynced, "id">;
+  syncProgress: EntityTable<SyncProgress, "key">;
 };
+
+/** The table each type of record is kept in. */
+export function recordTable(db: JournalDb, type: RecordType): Table<SyncedRecord & Unsynced, string> {
+  const tables = { workout: db.workouts, exercise: db.exercises, entry: db.entries, set: db.sets };
+  return tables[type] as unknown as Table<SyncedRecord & Unsynced, string>;
+}
+
+/** Transactions in which sync writes: what it stores came from the server or was just sent there. */
+const syncWrites = new WeakSet<Transaction>();
+
+/** Runs sync's own writes to the store, which leave records' unsynced marks as they set them. */
+export function writeAsSync<T>(db: JournalDb, write: () => Promise<T>): Promise<T> {
+  return db.transaction("rw", [db.workouts, db.exercises, db.entries, db.sets, db.syncProgress], () => {
+    syncWrites.add(Dexie.currentTransaction);
+    return write();
+  });
+}
 
 /** The state of the local store on this device. */
 export type StoreState =
@@ -35,6 +70,28 @@ export function openStore(name: string, onStateChange: (state: StoreState) => vo
   });
   // Only Substitutes carry the reference, so only they are in its index.
   db.version(3).stores({ entries: "id, workoutId, substitutesEntryId" });
+  // Records written before sync existed have all yet to reach the server.
+  db.version(4)
+    .stores({
+      workouts: "id, [date+createdAt], unsynced",
+      exercises: "id, *nameKeys, unsynced",
+      entries: "id, workoutId, substitutesEntryId, unsynced",
+      sets: "id, entryId, unsynced",
+      syncProgress: "key",
+    })
+    .upgrade(async (upgrading) => {
+      for (const name of ["workouts", "exercises", "entries", "sets"]) {
+        await upgrading.table(name).toCollection().modify({ unsynced: 1 });
+      }
+    });
+  for (const table of [db.workouts, db.exercises, db.entries, db.sets] as Table<Unsynced>[]) {
+    table.hook("creating", (_key, record, transaction) => {
+      if (!syncWrites.has(transaction)) record.unsynced = 1;
+    });
+    table.hook("updating", (_changes, _key, _record, transaction) =>
+      syncWrites.has(transaction) ? undefined : { unsynced: 1 },
+    );
+  }
   db.on("blocked", () => onStateChange({ status: "blocked" }));
   // Dexie closes the store itself here, to let the upgrade go ahead.
   db.on("versionchange", () => onStateChange({ status: "upgradedElsewhere" }));

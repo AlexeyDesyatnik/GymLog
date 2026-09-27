@@ -826,3 +826,16 @@ a.workout-link:focus-visible {
   border-radius: 8px;
   user-select: text;
 }
+
+/* Sync stays in the background: a quiet line at the end of the list of Workouts. */
+.sync-status {
+  margin: 0;
+  flex-basis: 100%;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.sync-sign-in {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}

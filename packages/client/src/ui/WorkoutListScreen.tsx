@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { localDate, localDateOf, type LocalDate } from "@gymlog/shared";
 import type { Journal, WorkoutSummary } from "../journal/journal.ts";
+import { SyncStatus } from "./SyncStatus.tsx";
 import { WorkoutRow } from "./WorkoutRow.tsx";
 
 export function WorkoutListScreen({ journal, today }: { journal: Journal; today: LocalDate }) {
@@ -16,6 +17,9 @@ export function WorkoutListScreen({ journal, today }: { journal: Journal; today:
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // Workouts recorded on the user's other devices show up as they arrive.
+  useEffect(() => journal.sync.onRecordsArrived(() => void reload()), [journal, reload]);
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -66,6 +70,8 @@ export function WorkoutListScreen({ journal, today }: { journal: Journal; today:
           ))}
         </ul>
       )}
+
+      <SyncStatus journal={journal} />
     </main>
   );
 }

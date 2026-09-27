@@ -1,0 +1,20 @@
+# The dev server's database: `npm run db` starts it. The same image and version as in tests
+# (packages/server/src/testing/postgres.ts) and on the server.
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: gymlog
+      POSTGRES_PASSWORD: gymlog
+      POSTGRES_DB: gymlog
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "gymlog"]
+      interval: 2s
+      retries: 15
+
+volumes:
+  postgres:

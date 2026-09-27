@@ -26,6 +26,10 @@ Tests are written only at these seams; everything else is exercised through them
 
 UI layout, the feel of the phone keyboard and behavior on real devices are checked by the owner's manual acceptance on a phone. Every issue ends with an acceptance scenario.
 
+### Docker
+
+The sync tests (seam 2) and the dev server need Docker running: the tests start a clean PostgreSQL per run through Testcontainers, and `npm run dev` starts the dev database from `compose.yaml`. Tests of the Journal alone (seam 1) don't need it.
+
 ### CI
 
 GitHub Actions runs typechecking and the full test suite on every PR.

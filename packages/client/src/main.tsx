@@ -4,7 +4,8 @@ import { openJournal } from "./journal/journal.ts";
 import { App } from "./ui/App.tsx";
 import "./ui/styles.css";
 
-const journal = openJournal();
+// The server is the one the app came from; in development Vite passes its requests on.
+const journal = openJournal({ server: { url: "" } });
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

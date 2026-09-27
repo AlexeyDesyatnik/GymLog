@@ -1,8 +1,8 @@
 import type { LocalDate } from "./local-date.ts";
 
 /**
- * Fields every synced record carries (parent spec, Records). The owner is added
- * together with sign-in in the sync ticket.
+ * Fields every synced record carries (parent spec, Records). A device's local store holds
+ * one user's records, so the owner is added only when a record is sent (see SyncRecord).
  */
 export interface SyncedRecord {
   /** Generated on the client, so resending a record never duplicates it. */
@@ -56,3 +56,14 @@ export interface SetRecord extends SyncedRecord {
    */
   maxReps?: number | null;
 }
+
+/** The kinds of synced record, each kept in a table of its own on the device. */
+export const RECORD_TYPES = ["workout", "exercise", "entry", "set"] as const;
+export type RecordType = (typeof RECORD_TYPES)[number];
+
+/** A record as sync sends it between a device and the server: tagged with its type and its owner. */
+export type SyncRecord =
+  | ({ type: "workout"; ownerId: string } & WorkoutRecord)
+  | ({ type: "exercise"; ownerId: string } & ExerciseRecord)
+  | ({ type: "entry"; ownerId: string } & EntryRecord)
+  | ({ type: "set"; ownerId: string } & SetRecord);

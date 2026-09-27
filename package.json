@@ -6,9 +6,10 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev -w @gymlog/client",
+    "db": "docker compose up -d --wait",
+    "dev": "npm run db && concurrently --names server,client --kill-others-on-fail \"npm run dev -w @gymlog/server\" \"npm run dev -w @gymlog/client\"",
     "build": "npm run build -w @gymlog/client",
-    "typecheck": "tsc -p packages/shared && tsc -p packages/client && tsc -p packages/client/tsconfig.node.json && tsc -p e2e",
+    "typecheck": "tsc -p packages/shared && tsc -p packages/client && tsc -p packages/client/tsconfig.node.json && tsc -p packages/server && tsc -p e2e",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },
@@ -18,6 +19,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
     "fake-indexeddb": "^6.2.5",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",

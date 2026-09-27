@@ -78,3 +78,53 @@ function rawConnection(name: string, version?: number, upgrade?: (db: IDBDatabas
     request.onerror = () => reject(request.error);
   });
 }
+
+/**
+ * A store written by the app before sync existed (schema version 3): a Workout of 1 September
+ * planned as "squat 100x5", recorded before finishing and Rep ranges existed, so its record
+ * has no `finished` and its Planned Set no `maxReps`. Returns the Workout's id.
+ */
+export async function storeFromBeforeSync(name: string): Promise<string> {
+  // The older code's schema, as it was then, not as store.ts declares it now.
+  const older = new Dexie(name);
+  older.version(1).stores({ workouts: "id, [date+createdAt]" });
+  older.version(2).stores({
+    workouts: "id, [date+createdAt]",
+    exercises: "id, *nameKeys",
+    entries: "id, workoutId",
+    sets: "id, entryId",
+  });
+  older.version(3).stores({ entries: "id, workoutId, substitutesEntryId" });
+  const workoutId = "0b8e6f2c-6f3e-4a51-9d49-3f1f6f0b1a01";
+  await older.table("workouts").add({ id: workoutId, updatedAt: 1, deleted: false, date: "2026-09-01", createdAt: 1 });
+  await older.table("exercises").add({
+    id: "0b8e6f2c-6f3e-4a51-9d49-3f1f6f0b1a02",
+    updatedAt: 1,
+    deleted: false,
+    primaryName: "squat",
+    alternativeNames: [],
+    nameKeys: ["squat"],
+  });
+  await older.table("entries").add({
+    id: "0b8e6f2c-6f3e-4a51-9d49-3f1f6f0b1a03",
+    updatedAt: 1,
+    deleted: false,
+    workoutId,
+    exerciseId: "0b8e6f2c-6f3e-4a51-9d49-3f1f6f0b1a02",
+    position: 0,
+  });
+  await older.table("sets").add({
+    id: "0b8e6f2c-6f3e-4a51-9d49-3f1f6f0b1a04",
+    updatedAt: 1,
+    deleted: false,
+    entryId: "0b8e6f2c-6f3e-4a51-9d49-3f1f6f0b1a03",
+    kind: "planned",
+    position: 0,
+    weight: 100,
+    reps: 5,
+    rpe: null,
+    comment: null,
+  });
+  older.close();
+  return workoutId;
+}

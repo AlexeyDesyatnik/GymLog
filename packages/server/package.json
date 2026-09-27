@@ -1,0 +1,25 @@
+{
+  "name": "@gymlog/server",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "dev": "node --watch --env-file=.env.development src/main.ts",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@gymlog/shared": "*",
+    "drizzle-orm": "^0.45.3",
+    "fastify": "^5.12.5",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@gymlog/client": "*",
+    "@testcontainers/postgresql": "^12.1.0",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11"
+  }
+}

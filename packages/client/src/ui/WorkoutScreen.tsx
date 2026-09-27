@@ -95,6 +95,9 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
     });
   }, [reload, workoutId]);
 
+  // Changes to this Workout from the user's other devices show up as they arrive.
+  useEffect(() => journal.sync.onRecordsArrived(() => void reload()), [journal, reload]);
+
   function openPlanEditor(current: WorkoutWithEntries) {
     // Opening synchronously within the tap lets the editor take focus and bring up the
     // keyboard; phones only allow that during the tap itself.

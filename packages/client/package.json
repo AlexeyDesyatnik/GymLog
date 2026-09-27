@@ -2,6 +2,10 @@
   "name": "@gymlog/client",
   "private": true,
   "type": "module",
+  "exports": {
+    "./journal": "./src/journal/journal.ts",
+    "./testing": "./src/journal/testing.ts"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
