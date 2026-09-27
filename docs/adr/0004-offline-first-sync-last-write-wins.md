@@ -1,3 +1,5 @@
 # Offline-first sync with last-write-wins
 
 Records are created and edited on the device first and synced to the server in the background, with no save button. Every record gets its id on the client, so resending the same change never creates a duplicate. A user may use several devices; when the same record was changed on two of them, the later change wins, per record (a Set, an Entry, a Workout's own fields), and deleting wins over editing. There is no conflict-resolution UI: with one person rarely editing one Workout on two devices at once, conflicts are rare, and asking the user to resolve them would add exactly the friction the product exists to avoid.
+
+"Later" is by the device time of the change, with one adjustment: a change made on a device is always stamped at least 1 ms later than the version it changes, even when the device's clock is behind the one that wrote that version. Otherwise a device with a slow clock would keep showing its own edit while the server kept the version it had edited, and the two would never settle. When two changes carry the same time, the one the server received first stays.
