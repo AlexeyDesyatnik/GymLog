@@ -2,11 +2,12 @@ import { Dexie, type EntityTable, type Table, type Transaction } from "dexie";
 import type { EntryRecord, ExerciseRecord, RecordType, SetRecord, SyncedRecord, WorkoutRecord } from "@gymlog/shared";
 
 /**
- * How a record is kept on the device: 1 while it has a change the server hasn't taken yet.
- * Every write marks it, except a write by sync itself (see syncWrites).
+ * How a record is kept on the device: 1 while it has a change the server hasn't taken yet,
+ * 2 when the server refused it, which is kept so a fix can send it again. Every write marks
+ * it 1, except a write by sync itself (see syncWrites).
  */
 export interface Unsynced {
-  unsynced?: 0 | 1;
+  unsynced?: 0 | 1 | 2;
 }
 
 /** What sync keeps on the device, in one row. */

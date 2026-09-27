@@ -1,5 +1,13 @@
 export { localDate, localDateOf, localDateToDate, type LocalDate } from "./local-date.ts";
-export { checkRpe, checkSetValues, checkSyncRecord, exerciseNameKey, RPE_BELOW_5, RPE_SCALE, TARGET_RPE_SCALE } from "./validation.ts";
+export {
+  checkRpe,
+  checkSetValues,
+  checkSyncRecord,
+  exerciseNameKey,
+  RPE_BELOW_5,
+  RPE_SCALE,
+  TARGET_RPE_SCALE,
+} from "./validation.ts";
 export {
   formatPlanLine,
   formatPlanSets,
@@ -14,6 +22,8 @@ export { RECORD_TYPES } from "./records.ts";
 export type {
   EntryRecord,
   ExerciseRecord,
+  PullAnswer,
+  PushAnswer,
   RecordType,
   SetRecord,
   SyncedRecord,

@@ -1,6 +1,6 @@
 import { inject, onTestFinished } from "vitest";
 import pg from "pg";
-import type { SyncRecord } from "@gymlog/shared";
+import type { PushAnswer, SyncRecord } from "@gymlog/shared";
 import { openJournal, type Journal } from "@gymlog/client/journal";
 import { uniqueJournalName } from "@gymlog/client/testing";
 import { startServer } from "../server.ts";
@@ -100,13 +100,12 @@ function cookieJarFetch(): typeof fetch {
   };
 }
 
-/** What the server answers a push: the records it refused, and why. */
-export interface PushAnswer {
-  refused: { id: string | null; reason: string }[];
-}
-
 /** Sends records to the server as this device, the way a client of any make could. */
-export async function pushAs(device: Device, url: string, records: unknown[]): Promise<{ status: number; answer: PushAnswer }> {
+export async function pushAs(
+  device: Device,
+  url: string,
+  records: unknown[],
+): Promise<{ status: number; answer: PushAnswer }> {
   const response = await device.fetch(`${url}/api/sync/push`, {
     method: "POST",
     headers: { "content-type": "application/json" },

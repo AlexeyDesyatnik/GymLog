@@ -16,7 +16,11 @@ test("a Workout planned on one device appears on the user's other device", async
   await phone.journal.sync.now();
 
   const arrived = await phone.journal.getWorkout(workout.id);
-  expect(arrived).toMatchObject({ date: "2026-09-27", finished: false, planNotation: "squat 100x5x3\nbench press 80x5" });
+  expect(arrived).toMatchObject({
+    date: "2026-09-27",
+    finished: false,
+    planNotation: "squat 100x5x3\nbench press 80x5",
+  });
 });
 
 test("records made on a device before anyone signed in are sent as the records of the user who signs in there", async () => {
@@ -100,6 +104,11 @@ function eventually(device: Device, check: () => Promise<void>, timeout: number)
   );
 }
 
+/** A check that the device lists this Workout and no other. */
+function listsOnly(device: Device, workoutId: string): () => Promise<void> {
+  return async () => expect((await device.journal.listWorkouts()).map((w) => w.id)).toEqual([workoutId]);
+}
+
 test("a change is sent by itself shortly after it is made", async () => {
   const server = await startTestServer();
   const phone = server.device();
@@ -110,7 +119,7 @@ test("a change is sent by itself shortly after it is made", async () => {
   const workout = await phone.journal.createWorkout(localDate("2026-09-27"));
 
   // Sooner than the phone's periodic sync.
-  await eventually(computer, async () => expect((await computer.journal.listWorkouts()).map((w) => w.id)).toEqual([workout.id]), 3_000);
+  await eventually(computer, listsOnly(computer, workout.id), 3_000);
 });
 
 test("changes not sent when the app was closed are sent by themselves when it opens again", async () => {
@@ -123,7 +132,7 @@ test("changes not sent when the app was closed are sent by themselves when it op
 
   phone.reopen();
 
-  await eventually(computer, async () => expect((await computer.journal.listWorkouts()).map((w) => w.id)).toEqual([workout.id]), 3_000);
+  await eventually(computer, listsOnly(computer, workout.id), 3_000);
 });
 
 test("a device hears when records from another device arrive, and only then", async () => {

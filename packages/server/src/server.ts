@@ -4,9 +4,9 @@ import cookie from "@fastify/cookie";
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import Fastify, { type FastifyRequest } from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import pg from "pg";
-import { checkSyncRecord, type SyncRecord } from "@gymlog/shared";
+import { checkSyncRecord, type PullAnswer, type PushAnswer, type SyncRecord } from "@gymlog/shared";
 import { identities, records, sessions, users } from "./db/schema.ts";
 
 export interface ServerOptions {
@@ -34,12 +34,6 @@ const SESSION_COOKIE = "gymlog_session";
 /** The longest a browser keeps a cookie. */
 const SESSION_DAYS = 400;
 
-/** A record the server didn't take, and why. */
-export interface Refusal {
-  id: string | null;
-  reason: string;
-}
-
 /**
  * The server: sign-in and sync. It knows nothing of the domain beyond checking records and
  * who owns them; each user reads and writes only their own records.
@@ -52,17 +46,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const app = Fastify();
   await app.register(cookie);
 
-  /** The signed-in user, from the session cookie; null when there is none or it isn't known. */
-  async function signedInUser(request: FastifyRequest): Promise<string | null> {
+  /**
+   * The signed-in user, from the session cookie. When there is none, or it isn't known, the
+   * request is answered 401 and null is returned.
+   */
+  async function signedInUser(request: FastifyRequest, reply: FastifyReply): Promise<string | null> {
     const token = request.cookies[SESSION_COOKIE];
-    if (!token) return null;
-    const [session] = await db.select().from(sessions).where(eq(sessions.tokenHash, hashOf(token)));
+    const [session] = token ? await db.select().from(sessions).where(eq(sessions.tokenHash, hashOf(token))) : [];
+    if (!session) reply.code(401).send({ error: "Not signed in" });
     return session?.userId ?? null;
   }
 
   app.get("/api/session", async (request, reply) => {
-    const userId = await signedInUser(request);
-    if (!userId) return reply.code(401).send({ error: "Not signed in" });
+    const userId = await signedInUser(request, reply);
+    if (!userId) return reply;
     return { userId };
   });
 
@@ -96,14 +93,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     });
   }
 
-  app.post<{ Body: { records?: unknown } }>("/api/sync/push", async (request, reply) => {
-    const userId = await signedInUser(request);
-    if (!userId) return reply.code(401).send({ error: "Not signed in" });
+  type Push = { Body: { records?: unknown } };
+  app.post<Push>("/api/sync/push", async (request, reply): Promise<PushAnswer | FastifyReply> => {
+    const userId = await signedInUser(request, reply);
+    if (!userId) return reply;
     const sent = request.body?.records;
     if (!Array.isArray(sent) || sent.length > BATCH_LIMIT) {
       return reply.code(400).send({ error: `records must be a list of at most ${BATCH_LIMIT}` });
     }
-    const refused: Refusal[] = [];
+    const refused: PushAnswer["refused"] = [];
     const accepted: SyncRecord[] = [];
     for (const item of sent) {
       try {
@@ -134,8 +132,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       for (const record of accepted) {
         const existing = storedById.get(record.id);
         // Records of another user, or another type, are only ever refused, never changed.
-        if (existing && (existing.ownerId !== userId || existing.type !== record.type)) {
+        if (existing && existing.ownerId !== userId) {
           refused.push({ id: record.id, reason: "The record's owner isn't the signed-in user" });
+          continue;
+        }
+        if (existing && existing.type !== record.type) {
+          refused.push({ id: record.id, reason: `The record is a ${existing.type}, not a ${record.type}` });
           continue;
         }
         const { type, ownerId, ...data } = record;
@@ -146,16 +148,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             target: records.id,
             set: { data: sql`excluded.data`, seq: sql`nextval('record_seq')` },
             // The same record sent again changes nothing, so devices don't pull it again.
-            setWhere: sql`${records.ownerId} = excluded.owner_id and ${records.type} = excluded.type and ${records.data} is distinct from excluded.data`,
+            setWhere: sql`${records.ownerId} = excluded.owner_id
+              and ${records.type} = excluded.type
+              and ${records.data} is distinct from excluded.data`,
           });
       }
     });
     return { refused };
   });
 
-  app.get<{ Querystring: { after?: string } }>("/api/sync/pull", async (request, reply) => {
-    const userId = await signedInUser(request);
-    if (!userId) return reply.code(401).send({ error: "Not signed in" });
+  type Pull = { Querystring: { after?: string } };
+  app.get<Pull>("/api/sync/pull", async (request, reply): Promise<PullAnswer | FastifyReply> => {
+    const userId = await signedInUser(request, reply);
+    if (!userId) return reply;
     const after = Number(request.query.after ?? 0);
     if (!Number.isSafeInteger(after) || after < 0) return reply.code(400).send({ error: "after must be a cursor" });
     const rows = await db
@@ -165,7 +170,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       .orderBy(asc(records.seq))
       .limit(BATCH_LIMIT);
     return {
-      records: rows.map((row) => ({ ...(row.data as object), type: row.type, ownerId: row.ownerId })),
+      records: rows.map((row) => ({ ...(row.data as object), type: row.type, ownerId: row.ownerId }) as SyncRecord),
       cursor: rows.at(-1)?.seq ?? after,
       more: rows.length === BATCH_LIMIT,
     };

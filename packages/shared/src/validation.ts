@@ -55,7 +55,9 @@ export function checkSyncRecord(value: unknown): SyncRecord {
   const record = objectOf(value);
   const type = record.type as RecordType;
   must(RECORD_TYPES.includes(type), `Unknown record type ${JSON.stringify(record.type)}`);
-  const unknown = Object.keys(record).filter((key) => key !== "type" && key !== "ownerId" && !FIELDS[type].includes(key));
+  const unknown = Object.keys(record).filter(
+    (key) => key !== "type" && key !== "ownerId" && !FIELDS[type].includes(key),
+  );
   must(unknown.length === 0, `A ${type} record has no field ${unknown.join(", ")}`);
   mustBeId(record.id, "id");
   mustBeId(record.ownerId, "ownerId");
@@ -70,7 +72,10 @@ export function checkSyncRecord(value: unknown): SyncRecord {
       must(record.finished === undefined || typeof record.finished === "boolean", "finished must be true or false");
       break;
     case "exercise":
-      must(typeof record.primaryName === "string" && record.primaryName.trim() !== "", "An Exercise needs a Primary name");
+      must(
+        typeof record.primaryName === "string" && record.primaryName.trim() !== "",
+        "An Exercise needs a Primary name",
+      );
       mustBeStrings(record.alternativeNames, "alternativeNames");
       mustBeStrings(record.nameKeys, "nameKeys");
       break;
@@ -103,7 +108,7 @@ function checkSet(set: Record<string, unknown>): void {
     must(maxReps === null, "A Performed Set has no Rep range");
     return;
   }
-  must(set.reps as number >= 1, `A Planned Set needs at least 1 rep, not ${set.reps}`);
+  must((set.reps as number) >= 1, `A Planned Set needs at least 1 rep, not ${set.reps}`);
   must(
     set.rpe === null || TARGET_RPE_SCALE.includes(set.rpe as number),
     `A Target RPE must be one of ${TARGET_RPE_SCALE.join(", ")}, not ${set.rpe}`,

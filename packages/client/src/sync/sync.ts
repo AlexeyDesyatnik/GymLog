@@ -1,4 +1,4 @@
-import { RECORD_TYPES, type RecordType, type SyncedRecord, type SyncRecord } from "@gymlog/shared";
+import { RECORD_TYPES, type PullAnswer, type PushAnswer, type RecordType, type SyncedRecord } from "@gymlog/shared";
 import { recordTable, writeAsSync, type JournalDb, type Unsynced } from "../journal/store.ts";
 
 /** Where this device stands with sync. */
@@ -37,10 +37,6 @@ export interface SyncOptions {
   url: string;
   /** For tests, a fetch with a cookie jar of its own. */
   fetch?: typeof fetch;
-  /** How soon after a change it is sent. */
-  changeDelayMs?: number;
-  /** How often, while the app is in view, changes from other devices are looked for. */
-  pollMs?: number;
 }
 
 /** The Journal's side of sync: it says when the store is ready and when something changed. */
@@ -50,6 +46,10 @@ export interface SyncControl extends Sync {
   close(): void;
 }
 
+/** How soon after a change it is sent. */
+const CHANGE_DELAY_MS = 1000;
+/** How often, while the app is in view, changes from other devices are looked for. */
+const POLL_MS = 5000;
 /** The most records sent in one request; the server takes up to 500. */
 const PUSH_BATCH = 200;
 /** Sending stops for this round after this many batches, so constant typing can't keep it going forever. */
@@ -122,17 +122,17 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
       const sending = await unsyncedRecords();
       if (sending.length === 0) return;
       const wire = sending.map(({ type, record }) => ({ ...withoutMark(record), type, ownerId: userId }));
-      const { refused } = await api<{ refused: { id: string | null; reason: string }[] }>("/api/sync/push", {
-        records: wire,
-      });
-      // A refused record would be refused again as it is; it goes again once it changes.
+      const { refused } = await api<PushAnswer>("/api/sync/push", { records: wire });
       for (const refusal of refused) console.warn("The server refused a record", refusal);
+      const refusedIds = new Set(refused.map((r) => r.id));
       await writeAsSync(db, async () => {
         for (const { type, record } of sending) {
           const table = recordTable(db, type);
           const current = await table.get(record.id);
           // A record changed again while it was being sent still has that change to send.
-          if (current && sameRecord(current, record)) await table.update(record.id, { unsynced: 0 });
+          if (!current || !sameRecord(current, record)) continue;
+          // A refused record would be refused again as it is; it goes again once it changes.
+          await table.update(record.id, { unsynced: refusedIds.has(record.id) ? 2 : 0 });
         }
       });
     }
@@ -155,9 +155,7 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
   async function pull(userId: string): Promise<void> {
     for (;;) {
       const progress = (await db.syncProgress.get("sync"))!;
-      const page = await api<{ records: SyncRecord[]; cursor: number; more: boolean }>(
-        `/api/sync/pull?after=${progress.cursor}`,
-      );
+      const page = await api<PullAnswer>(`/api/sync/pull?after=${progress.cursor}`);
       const arrived = await writeAsSync(db, async () => {
         let stored = false;
         for (const { type, ownerId, ...record } of page.records) {
@@ -223,13 +221,13 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
     start() {
       if (!options || closed) return;
       syncSoon();
-      pollTimer = setInterval(poll, options.pollMs ?? 5000);
+      pollTimer = setInterval(poll, POLL_MS);
       if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisible);
     },
     changed() {
       if (!options || closed) return;
       clearTimeout(changeTimer);
-      changeTimer = setTimeout(syncSoon, options.changeDelayMs ?? 1000);
+      changeTimer = setTimeout(syncSoon, CHANGE_DELAY_MS);
     },
     close() {
       closed = true;

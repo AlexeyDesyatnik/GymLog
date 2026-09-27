@@ -3,7 +3,10 @@ import { localDate } from "@gymlog/shared";
 import { pushAs, startTestServer, userIdOf, type Device, type TestServer } from "./testing/devices.ts";
 
 /** A signed-in phone and a Set record of its user, as a device sends it, with these values. */
-async function setRecordOn(server: TestServer, values: { kind: "planned" | "performed"; reps: number; rpe: number | null }) {
+async function setRecordOn(
+  server: TestServer,
+  values: { kind: "planned" | "performed"; reps: number; rpe: number | null },
+) {
   const phone = server.device();
   await phone.signIn("alexey");
   const record = {
@@ -67,5 +70,6 @@ test("a Plan with a Rep range and Target RPEs reaches the other device as writte
   await computer.journal.sync.now();
   await phone.journal.sync.now();
 
-  expect((await phone.journal.getWorkout(workout.id))?.planNotation).toBe("bicep curl 15x10-12x3@8\nsquat 100x5@7 90x5x2");
+  const arrived = await phone.journal.getWorkout(workout.id);
+  expect(arrived?.planNotation).toBe("bicep curl 15x10-12x3@8\nsquat 100x5@7 90x5x2");
 });

@@ -31,7 +31,9 @@ test("a record sent as another user's is refused, and never reaches that user", 
   await mariasPhone.signIn("maria");
 
   const id = crypto.randomUUID();
-  const { answer } = await pushAs(mariasPhone, server.url, [workoutRecord({ id, ownerId: alexeysId, date: "2026-09-27" })]);
+  const { answer } = await pushAs(mariasPhone, server.url, [
+    workoutRecord({ id, ownerId: alexeysId, date: "2026-09-27" }),
+  ]);
   await alexeysPhone.journal.sync.now();
 
   expect(answer.refused.map((r) => r.id)).toEqual([id]);

@@ -1,6 +1,8 @@
 import { useState, useSyncExternalStore, type FormEvent } from "react";
 import type { Journal } from "../journal/journal.ts";
 
+const SIGNED_OUT = "Вы не вошли: тренировки хранятся только на этом устройстве.";
+
 /** Whether this device's records reach the user's other devices, and the way to sign in. */
 export function SyncStatus({ journal }: { journal: Journal }) {
   const state = useSyncExternalStore(journal.sync.onStateChange, journal.sync.state);
@@ -13,7 +15,7 @@ export function SyncStatus({ journal }: { journal: Journal }) {
       return import.meta.env.DEV ? (
         <TestSignIn journal={journal} />
       ) : (
-        <p className="sync-status">Вы не вошли: тренировки хранятся только на этом устройстве.</p>
+        <p className="sync-status">{SIGNED_OUT}</p>
       );
     case "synced":
       return <p className="sync-status">Синхронизировано с другими устройствами.</p>;
@@ -26,7 +28,7 @@ export function SyncStatus({ journal }: { journal: Journal }) {
     case "failed":
       return (
         <p className="sync-status">
-          Нет связи с сервером. Всё записанное сохранено на этом устройстве и отправится, когда связь появится.
+          Не удалось синхронизировать. Всё записанное сохранено на этом устройстве, синхронизация повторится сама.
         </p>
       );
   }
@@ -65,7 +67,7 @@ function TestSignIn({ journal }: { journal: Journal }) {
         Войти
       </button>
       {error === null ? (
-        <p className="sync-status">Вы не вошли: тренировки хранятся только на этом устройстве.</p>
+        <p className="sync-status">{SIGNED_OUT}</p>
       ) : (
         <p className="sync-status" role="alert">
           Не удалось войти: {error}

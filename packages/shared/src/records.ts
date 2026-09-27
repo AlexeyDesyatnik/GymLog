@@ -67,3 +67,17 @@ export type SyncRecord =
   | ({ type: "exercise"; ownerId: string } & ExerciseRecord)
   | ({ type: "entry"; ownerId: string } & EntryRecord)
   | ({ type: "set"; ownerId: string } & SetRecord);
+
+/** The server's answer to a push: the records it refused, and why; it took all the others. */
+export interface PushAnswer {
+  refused: { id: string | null; reason: string }[];
+}
+
+/** One page of the records changed after a device's cursor, in the order they were written. */
+export interface PullAnswer {
+  records: SyncRecord[];
+  /** Where the next pull starts. */
+  cursor: number;
+  /** More records wait after this page. */
+  more: boolean;
+}

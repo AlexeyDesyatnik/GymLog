@@ -3,8 +3,9 @@ import { startServer } from "./server.ts";
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is not set");
 const testSignIn = process.env.GYMLOG_TEST_SIGN_IN === "1";
-if (testSignIn && process.env.NODE_ENV === "production") {
-  throw new Error("The test sign-in lets anyone sign in as anyone; it is never turned on in production");
+// Only where development is declared outright, so a deploy that forgets NODE_ENV can't turn it on.
+if (testSignIn && process.env.NODE_ENV !== "development") {
+  throw new Error("The test sign-in lets anyone sign in as anyone; it is only for NODE_ENV=development");
 }
 
 const server = await startServer({

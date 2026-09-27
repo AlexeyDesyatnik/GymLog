@@ -261,6 +261,7 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
     if (closed) return;
     currentStoreState = state;
     for (const listener of storeStateListeners) listener();
+    // Never called before openStore returns, so sync is there by then.
     if (state.status === "ready") sync.start();
   });
   const sync = openSync(db, server);

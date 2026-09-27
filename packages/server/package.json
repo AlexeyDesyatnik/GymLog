@@ -2,9 +2,6 @@
   "name": "@gymlog/server",
   "private": true,
   "type": "module",
-  "exports": {
-    "./testing": "./src/testing.ts"
-  },
   "scripts": {
     "dev": "node --watch --env-file=.env.development src/main.ts",
     "db:generate": "drizzle-kit generate"
