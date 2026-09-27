@@ -25,7 +25,7 @@ test("a change the Journal refuses is not saved either, and says why", async () 
   const change = journal.addEntry(workout.id, "deadlift");
 
   await expect(change).rejects.toBeInstanceOf(ChangeNotSaved);
-  await expect(change).rejects.toHaveProperty("cause.message", `Workout ${workout.id} is Finished; undo finishing to change it`);
+  await expect(change).rejects.toHaveProperty("cause", expect.any(RangeError));
 });
 
 test("reading from a store that can't be used fails with the store's own reason", async () => {

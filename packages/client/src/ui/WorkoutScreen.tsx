@@ -127,8 +127,9 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
   function finish() {
     return switchOnce(async () => {
       setPlanEditor(null);
-      clearPlanDraft(workoutId);
       await journal.finishWorkout(workoutId);
+      // Only once finished: if finishing fails, the draft is still there after reloading.
+      clearPlanDraft(workoutId);
     });
   }
 

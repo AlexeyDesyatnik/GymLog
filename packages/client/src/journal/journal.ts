@@ -184,8 +184,13 @@ export class ChangeNotSaved extends Error {
   }
 }
 
-/** Whether each call of the Journal changes what is stored; the compiler keeps it complete. */
-const CHANGES: Record<keyof Journal, boolean> = {
+/**
+ * Whether each call of the Journal changes what is stored. The compiler keeps it complete,
+ * and lets only calls that return a promise be marked as changes.
+ */
+const CHANGES: {
+  [Name in keyof Journal]: Journal[Name] extends (...args: never[]) => Promise<unknown> ? boolean : false;
+} = {
   storeState: false,
   onStoreStateChange: false,
   createWorkout: true,
