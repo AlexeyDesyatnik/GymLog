@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { localDate } from "@gymlog/shared";
-import type { Journal, WorkoutWithEntries } from "./journal.ts";
+import { OwnExerciseRefusal, type Journal, type WorkoutWithEntries } from "./journal.ts";
 import { freshJournal } from "./testing.ts";
 
 /** A Workout planned as bench press then squat. */
@@ -62,11 +62,19 @@ test.each<[string, (p: Planned) => Promise<unknown>]>([
       return p.journal.substituteEntry(p.bench.id, "push-up");
     },
   ],
-  ["an Entry, by its own Exercise", (p) => p.journal.substituteEntry(p.bench.id, "Bench Press")],
-])("substituting is refused for %s", async (_, substitute) => {
+])("substituting is refused for %s, which the UI never asks for", async (_, substitute) => {
   const planned = await plannedWorkout();
 
-  await expect(substitute(planned)).rejects.toThrow();
+  const refused = substitute(planned);
+
+  await expect(refused).rejects.toThrow();
+  await expect(refused).rejects.not.toBeInstanceOf(OwnExerciseRefusal);
+});
+
+test("substituting an Entry by its own Exercise, however it is typed, is refused as such", async () => {
+  const { journal, bench } = await plannedWorkout();
+
+  await expect(journal.substituteEntry(bench.id, "Bench Press")).rejects.toBeInstanceOf(OwnExerciseRefusal);
 });
 
 /** Per Entry, whether each of its pairs is replaced and whether it is Not performed. */

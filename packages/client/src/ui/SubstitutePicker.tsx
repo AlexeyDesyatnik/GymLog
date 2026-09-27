@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { isRefusal, type Entry, type Exercise, type Journal } from "../journal/journal.ts";
+import { OwnExerciseRefusal, type Entry, type Exercise, type Journal } from "../journal/journal.ts";
 
 /** How many suggestions fit above the phone keyboard. */
 const SUGGESTION_COUNT = 5;
@@ -18,7 +18,7 @@ interface SubstitutePickerProps {
 export function SubstitutePicker({ journal, entry, onSubstituted, onCancel }: SubstitutePickerProps) {
   const [name, setName] = useState("");
   const [suggestions, setSuggestions] = useState<Exercise[]>([]);
-  /** The name given was refused, e.g. the Entry's own Exercise under another name. */
+  /** The name given is the Entry's own Exercise, under another name or spelling. */
   const [refused, setRefused] = useState(false);
   const [saving, setSaving] = useState(false);
   // Set at once, unlike state, so a second tap arriving before the next render is turned away.
@@ -32,16 +32,9 @@ export function SubstitutePicker({ journal, entry, onSubstituted, onCancel }: Su
   useEffect(() => {
     // Only the answer for the latest text is shown, whatever order the answers come in.
     let current = true;
-    journal.suggestSubstitutes(entry.id, name).then(
-      (found) => {
-        if (current) setSuggestions(found.slice(0, SUGGESTION_COUNT));
-      },
-      // The Entry is gone, e.g. deleted on another screen: there is nothing to suggest for.
-      (error: unknown) => {
-        if (!isRefusal(error)) throw error;
-        if (current) setSuggestions([]);
-      },
-    );
+    void journal.suggestSubstitutes(entry.id, name).then((found) => {
+      if (current) setSuggestions(found.slice(0, SUGGESTION_COUNT));
+    });
     return () => {
       current = false;
     };
@@ -55,7 +48,7 @@ export function SubstitutePicker({ journal, entry, onSubstituted, onCancel }: Su
       await journal.substituteEntry(entry.id, exerciseName);
       await onSubstituted();
     } catch (error) {
-      if (!isRefusal(error)) throw error;
+      if (!(error instanceof OwnExerciseRefusal)) throw error;
       setRefused(true);
     } finally {
       savingNow.current = false;

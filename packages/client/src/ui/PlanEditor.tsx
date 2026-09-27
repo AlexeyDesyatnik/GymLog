@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { formatReps, parsePlan, type PlanLineProblem } from "@gymlog/shared";
-import { isRefusal, type Journal } from "../journal/journal.ts";
+import type { Journal } from "../journal/journal.ts";
 import { showNumber, showRpe } from "./numbers.ts";
 import { clearPlanDraft, savePlanDraft, type PlanDraft } from "./planDraft.ts";
 
@@ -24,7 +24,7 @@ const PROBLEMS: Record<PlanLineProblem, string> = {
   "bad-target-rpe": "Целевой RPE пишется сразу после подходов, например 100x5x3@7, и бывает 5, 6, 7, 7,5, 8, 8,5, 9, 9,5 или 10.",
 };
 
-type Outcome = "editing" | "lines-skipped" | "failed";
+type Outcome = "editing" | "lines-skipped";
 
 export function PlanEditor({ journal, workoutId, draft, focusOnOpen, onClose, onApplied }: PlanEditorProps) {
   const [notation, setNotation] = useState(draft.notation);
@@ -49,18 +49,13 @@ export function PlanEditor({ journal, workoutId, draft, focusOnOpen, onClose, on
   }
 
   async function done() {
-    try {
-      const results = await journal.setPlan(workoutId, notation);
-      await onApplied();
-      if (results.every((r) => r.ok)) {
-        clearPlanDraft(workoutId);
-        onClose();
-      } else {
-        setOutcome("lines-skipped");
-      }
-    } catch (error) {
-      if (!isRefusal(error)) throw error;
-      setOutcome("failed");
+    const results = await journal.setPlan(workoutId, notation);
+    await onApplied();
+    if (results.every((r) => r.ok)) {
+      clearPlanDraft(workoutId);
+      onClose();
+    } else {
+      setOutcome("lines-skipped");
     }
   }
 
@@ -116,10 +111,6 @@ export function PlanEditor({ journal, workoutId, draft, focusOnOpen, onClose, on
       {outcome === "lines-skipped" ? (
         <p className="plan-message" role="status">
           Строки с ошибками не попали в план. Исправьте или удалите их и снова нажмите «Готово».
-        </p>
-      ) : outcome === "failed" ? (
-        <p className="plan-message" role="alert">
-          План не сохранился: возможно, тренировку завершили или удалили на другом устройстве. Нажмите «Отмена».
         </p>
       ) : null}
 

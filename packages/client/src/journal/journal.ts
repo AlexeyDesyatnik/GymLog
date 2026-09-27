@@ -108,11 +108,7 @@ export interface WorkoutWithEntries extends Workout {
   planNotation: string;
 }
 
-/**
- * The single interface the UI uses for everything a user does with their Workouts. A call
- * the Journal won't carry out is refused: it rejects with an error isRefusal knows. Any
- * other rejection means the store itself is unusable.
- */
+/** The single interface the UI uses for everything a user does with their Workouts. */
 export interface Journal {
   /** The state of the local store on this device; calls wait while it is opening or blocked. */
   storeState(): StoreState;
@@ -133,6 +129,7 @@ export interface Journal {
   /**
    * Replaces a whole planned Entry that has no Performed Sets with a Substitute of another Exercise,
    * placed right after it. The Substitute starts with no Sets, and the Plan is unchanged.
+   * Refused with OwnExerciseRefusal when the name is one of the Entry's own Exercise.
    */
   substituteEntry(entryId: string, exerciseName: string): Promise<Entry>;
   /**
@@ -164,10 +161,15 @@ export interface Journal {
   close(): void;
 }
 
-/** The Journal refused the call: what was asked is forbidden or wrong, and the store is fine. */
-export function isRefusal(error: unknown): boolean {
-  // Every refusal, the Journal's own and the shared validation's, is a RangeError.
-  return error instanceof RangeError;
+/**
+ * Substituting an Entry by its own Exercise, however it is typed. The one refusal the UI
+ * can't foresee, since only the Journal knows every name of an Exercise.
+ */
+export class OwnExerciseRefusal extends RangeError {
+  constructor() {
+    super("A Substitute is of another Exercise");
+    this.name = "OwnExerciseRefusal";
+  }
 }
 
 export interface SetValues {
@@ -340,7 +342,7 @@ export function openJournal({ name = "gymlog", now = Date.now }: JournalOptions 
         if (refusal) throw new RangeError(refusal);
         const entries = await liveEntriesOf(db, [replaced.workoutId]);
         const exercise = await findOrCreateExercise(exerciseName);
-        if (exercise.id === replaced.exerciseId) throw new RangeError("A Substitute is of another Exercise");
+        if (exercise.id === replaced.exerciseId) throw new OwnExerciseRefusal();
         const time = now();
         // Later Entries move down to make room right after the replaced one.
         for (const later of entries.filter((e) => e.position > replaced.position)) {
