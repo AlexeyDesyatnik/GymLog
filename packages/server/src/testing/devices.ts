@@ -26,6 +26,7 @@ export interface Device {
   loseNextAnswer(): void;
   /** Takes this device offline: its requests fail until it goes online again. */
   goOffline(): void;
+  /** Brings this device back online. */
   goOnline(): void;
   /** Sets this device's clock to this time, in milliseconds; it ticks by 1 ms per reading from there. */
   setClock(time: number): void;

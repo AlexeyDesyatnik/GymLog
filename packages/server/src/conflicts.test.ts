@@ -22,13 +22,17 @@ async function phoneAndComputerOffline() {
   return { phone, computer, workout, entry, set };
 }
 
-/** Brings the devices online one by one in this order, each syncing, then syncs the first again to take the rest. */
-async function bringOnlineInOrder(...devices: Device[]) {
-  for (const device of devices) {
-    device.goOnline();
-    await device.journal.sync.now();
+/**
+ * Brings both devices online one by one, each syncing, so that the device's changes reach the
+ * server first or last; then syncs the one that went first again to take the other's.
+ */
+async function bringOnline(device: Device, reachesServer: "first" | "last", other: Device) {
+  const inOrder = reachesServer === "first" ? [device, other] : [other, device];
+  for (const next of inOrder) {
+    next.goOnline();
+    await next.journal.sync.now();
   }
-  await devices[0]!.journal.sync.now();
+  await inOrder[0]!.journal.sync.now();
 }
 
 /** Each device's Performed Sets of the Workout, as [weight, reps] per Entry. */
@@ -39,33 +43,6 @@ async function performedSetsOn(devices: Device[], workoutId: string) {
     ),
   );
 }
-
-test.each(["first", "last"] as const)(
-  "when the same Set was changed on two devices, the later change wins on both, having reached the server %s",
-  async (order) => {
-    const { phone, computer, workout, set } = await phoneAndComputerOffline();
-    phone.setClock(5_000);
-    await phone.journal.editPerformedSet(set.id, { weight: 105, reps: 5 });
-    computer.setClock(6_000);
-    await computer.journal.editPerformedSet(set.id, { weight: 110, reps: 5 });
-
-    await bringOnlineInOrder(...(order === "first" ? [computer, phone] : [phone, computer]));
-
-    expect(await performedSetsOn([phone, computer], workout.id)).toEqual([[[[110, 5]]], [[[110, 5]]]]);
-  },
-);
-
-test("when the same Set was changed on two devices at the same time, the change the server received first wins on both", async () => {
-  const { phone, computer, workout, set } = await phoneAndComputerOffline();
-  phone.setClock(5_000);
-  await phone.journal.editPerformedSet(set.id, { weight: 105, reps: 5 });
-  computer.setClock(5_000);
-  await computer.journal.editPerformedSet(set.id, { weight: 110, reps: 5 });
-
-  await bringOnlineInOrder(phone, computer);
-
-  expect(await performedSetsOn([phone, computer], workout.id)).toEqual([[[[105, 5]]], [[[105, 5]]]]);
-});
 
 /** Whether each device still has the Workout, in its list and on its own. */
 async function hasWorkoutOn(devices: Device[], workoutId: string) {
@@ -78,6 +55,39 @@ async function hasWorkoutOn(devices: Device[], workoutId: string) {
 }
 
 test.each(["first", "last"] as const)(
+  "when the same Set was changed on two devices, the later change wins on both, having reached the server %s",
+  async (order) => {
+    const { phone, computer, workout, set } = await phoneAndComputerOffline();
+    phone.setClock(5_000);
+    await phone.journal.editPerformedSet(set.id, { weight: 105, reps: 5 });
+    computer.setClock(6_000);
+    await computer.journal.editPerformedSet(set.id, { weight: 110, reps: 5 });
+
+    await bringOnline(computer, order, phone);
+
+    expect(await performedSetsOn([phone, computer], workout.id)).toEqual([[[[110, 5]]], [[[110, 5]]]]);
+  },
+);
+
+test.each([
+  { first: "phone", wins: [105, 5] },
+  { first: "computer", wins: [110, 5] },
+] as const)(
+  "when the same Set was changed on two devices at the same time, the change the server received first wins on both: the $first's",
+  async ({ first, wins }) => {
+    const { phone, computer, workout, set } = await phoneAndComputerOffline();
+    phone.setClock(5_000);
+    await phone.journal.editPerformedSet(set.id, { weight: 105, reps: 5 });
+    computer.setClock(5_000);
+    await computer.journal.editPerformedSet(set.id, { weight: 110, reps: 5 });
+
+    await bringOnline(phone, first === "phone" ? "first" : "last", computer);
+
+    expect(await performedSetsOn([phone, computer], workout.id)).toEqual([[[wins]], [[wins]]]);
+  },
+);
+
+test.each(["first", "last"] as const)(
   "a Workout deleted on one device and changed later on another stays deleted on both, the change having reached the server %s",
   async (order) => {
     const { phone, computer, workout } = await phoneAndComputerOffline();
@@ -86,7 +96,7 @@ test.each(["first", "last"] as const)(
     computer.setClock(6_000);
     await computer.journal.changeWorkoutDate(workout.id, localDate("2026-09-28"));
 
-    await bringOnlineInOrder(...(order === "first" ? [computer, phone] : [phone, computer]));
+    await bringOnline(computer, order, phone);
 
     expect(await hasWorkoutOn([phone, computer], workout.id)).toEqual([false, false]);
   },
@@ -112,7 +122,7 @@ test("a deleted Workout isn't brought back by its records sent again as they wer
 });
 
 test.each(["first", "last"] as const)(
-  "a deleted Workout's Sets stay hidden on both devices after an edit to them on another, the edit having reached the server %s",
+  "a deleted Workout stays deleted on both devices after an edit to its Sets on another, the edit having reached the server %s",
   async (order) => {
     const { phone, computer, workout, entry, set } = await phoneAndComputerOffline();
     phone.setClock(5_000);
@@ -121,7 +131,7 @@ test.each(["first", "last"] as const)(
     await computer.journal.editPerformedSet(set.id, { weight: 110, reps: 5 });
     await computer.journal.addPerformedSet(entry.id, { weight: 100, reps: 5 });
 
-    await bringOnlineInOrder(...(order === "first" ? [computer, phone] : [phone, computer]));
+    await bringOnline(computer, order, phone);
 
     expect(await hasWorkoutOn([phone, computer], workout.id)).toEqual([false, false]);
   },
@@ -137,7 +147,7 @@ test.each(["first", "last"] as const)(
     await computer.journal.editPerformedSet(set.id, { weight: 110, reps: 5 });
     await computer.journal.addPerformedSet(entry.id, { weight: 100, reps: 5 });
 
-    await bringOnlineInOrder(...(order === "first" ? [computer, phone] : [phone, computer]));
+    await bringOnline(computer, order, phone);
 
     expect(await performedSetsOn([phone, computer], workout.id)).toEqual([[], []]);
   },
