@@ -110,5 +110,21 @@ _Avoid_: Link, deduplicate
 
 ### Users
 
+**User** (пользователь):
+A person with their own Workouts and Exercise catalog, who signs in with a Login and a password. A user comes to exist only through an Invite.
+_Avoid_: Account (the interface may still say «аккаунт»)
+
+**Owner** (владелец):
+The one User who runs GymLog: the only one who creates Invites and Reset links.
+_Avoid_: Admin; "owner" for the User whose records they are
+
+**Login** (логин):
+The name a User signs in with, chosen when they use their Invite. No two Users have the same Login, ignoring case.
+_Avoid_: Username, email
+
 **Invite** (приглашение):
-A one-time link from the owner through which a new user gets an account.
+A one-time link from the Owner through which a new User chooses a Login and a password.
+
+**Reset link** (ссылка для нового пароля):
+A one-time link from the Owner through which a User who forgot their password sets a new one.
+_Avoid_: Password reset, recovery email
