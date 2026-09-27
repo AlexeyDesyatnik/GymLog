@@ -42,9 +42,17 @@ export const PASSWORD_MIN_LENGTH = 8;
 /** The longest password, so hashing one can't be made to take long. */
 export const PASSWORD_MAX_LENGTH = 200;
 
-/** Logins match ignoring case and extra spaces, like Exercise names. */
+/** How long a login is held up after too many wrong passwords in a row. */
+export const SIGN_IN_LOCK_MINUTES = 15;
+
+/** Logins match ignoring case and extra spaces. */
 export function loginKey(login: string): string {
-  return exerciseNameKey(login);
+  return login.trim().replace(/\s+/g, " ").toLocaleLowerCase("ru");
+}
+
+/** Whether the text is a UUID, as record ids and user ids are. */
+export function isUuid(text: unknown): text is string {
+  return typeof text === "string" && ID.test(text);
 }
 
 /** A login is some text, not blank, up to LOGIN_MAX_LENGTH characters once trimmed. */

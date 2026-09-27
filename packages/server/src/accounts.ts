@@ -1,20 +1,30 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { and, asc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
-import { checkSyncRecord, exerciseNameKey, loginKey, type AccountSummary, type SignInRefusal } from "@gymlog/shared";
+import {
+  checkSyncRecord,
+  exerciseNameKey,
+  loginKey,
+  SIGN_IN_LOCK_MINUTES,
+  type AccountSummary,
+  type SignInRefusal,
+} from "@gymlog/shared";
 import { invites, logins, passwordResets, records, sessions, signInAttempts, users } from "./db/schema.ts";
 import { hashPassword, NO_PASSWORD, passwordMatches } from "./passwords.ts";
 import { STARTER_LIST } from "./starter-list.ts";
 
 export type Database = NodePgDatabase;
 
+/** The user signed in, or why not. */
+export type SignInOutcome = { userId: string } | { refusal: SignInRefusal };
+
 /** Wrong passwords in a row after which a login can't sign in for a while. */
 const MAX_FAILURES = 5;
-/** How long a login is held up after MAX_FAILURES wrong passwords. */
-const LOCK_MINUTES = 15;
+/** Attempts for a login quiet for a day are forgotten, so the table doesn't keep every login ever tried. */
+const FORGET_ATTEMPTS_DAYS = 1;
 /** How long a link for a new password works, so a friend has time to open it. */
 const RESET_DAYS = 7;
 
@@ -34,7 +44,7 @@ export async function openDatabase(databaseUrl: string): Promise<{ db: Database;
 export async function signUp(
   db: Database,
   { invite: inviteToken, login, password }: { invite: string; login: string; password: string },
-): Promise<{ userId: string } | { refusal: SignInRefusal }> {
+): Promise<SignInOutcome> {
   // Slow on purpose, so outside the transaction.
   const passwordHash = await hashPassword(password);
   const key = loginKey(login);
@@ -62,35 +72,53 @@ export async function signUp(
 
 /**
  * Signs in with a login and a password. An unknown login is refused just like a wrong
- * password, and takes as long. After MAX_FAILURES wrong passwords the login is held up for a
- * while, right password or not.
+ * password, and takes as long. After MAX_FAILURES wrong passwords in a row the login is held
+ * up for SIGN_IN_LOCK_MINUTES, right password or not; a quiet spell as long starts the count
+ * afresh.
  */
 export async function signIn(
   db: Database,
   { login, password }: { login: string; password: string },
-): Promise<{ userId: string } | { refusal: SignInRefusal }> {
+): Promise<SignInOutcome> {
   const key = loginKey(login);
-  const [attempts] = await db
-    .select()
-    .from(signInAttempts)
-    .where(and(eq(signInAttempts.loginKey, key), gt(signInAttempts.lockedUntil, sql`now()`)));
-  if (attempts) return { refusal: "tooManyAttempts" };
+  // Counted before the password is checked, so attempts sent all at once can't slip past the count.
+  const [attempt] = await db
+    .insert(signInAttempts)
+    .values({ loginKey: key, failures: 1 })
+    .onConflictDoUpdate({
+      target: signInAttempts.loginKey,
+      set: {
+        failures: sql`case
+          when ${signInAttempts.lockedUntil} > now() then ${signInAttempts.failures}
+          when ${signInAttempts.lastAttemptAt} < now() - make_interval(mins => ${SIGN_IN_LOCK_MINUTES}) then 1
+          else ${signInAttempts.failures} + 1 end`,
+        lastAttemptAt: sql`now()`,
+      },
+    })
+    .returning({
+      failures: signInAttempts.failures,
+      locked: sql<boolean>`coalesce(${signInAttempts.lockedUntil} > now(), false)`,
+    });
+  if (attempt!.locked || attempt!.failures > MAX_FAILURES) return { refusal: "tooManyAttempts" };
   const [known] = await db.select().from(logins).where(eq(logins.loginKey, key));
   if (await passwordMatches(password, known?.passwordHash ?? NO_PASSWORD)) {
     await db.delete(signInAttempts).where(eq(signInAttempts.loginKey, key));
     return { userId: known!.userId };
   }
-  const [failed] = await db
-    .insert(signInAttempts)
-    .values({ loginKey: key, failures: 1 })
-    .onConflictDoUpdate({ target: signInAttempts.loginKey, set: { failures: sql`${signInAttempts.failures} + 1` } })
-    .returning();
-  if (failed!.failures >= MAX_FAILURES) {
+  if (attempt!.failures === MAX_FAILURES) {
     await db
       .update(signInAttempts)
-      .set({ failures: 0, lockedUntil: sql`now() + make_interval(mins => ${LOCK_MINUTES})` })
+      .set({ failures: 0, lockedUntil: sql`now() + make_interval(mins => ${SIGN_IN_LOCK_MINUTES})` })
       .where(eq(signInAttempts.loginKey, key));
   }
+  await db
+    .delete(signInAttempts)
+    .where(
+      and(
+        lt(signInAttempts.lastAttemptAt, sql`now() - make_interval(days => ${FORGET_ATTEMPTS_DAYS})`),
+        or(isNull(signInAttempts.lockedUntil), lt(signInAttempts.lockedUntil, sql`now()`)),
+      ),
+    );
   return { refusal: "wrongPassword" };
 }
 
@@ -197,7 +225,7 @@ export async function passwordResetLogin(db: Database, token: string): Promise<s
 export async function resetPassword(
   db: Database,
   { reset: token, password }: { reset: string; password: string },
-): Promise<{ userId: string } | { refusal: SignInRefusal }> {
+): Promise<SignInOutcome> {
   const passwordHash = await hashPassword(password);
   return db.transaction(async (tx) => {
     const [reset] = await tx.select().from(passwordResets).where(usableReset(token)).for("update");
@@ -207,7 +235,11 @@ export async function resetPassword(
       .set({ passwordHash })
       .where(eq(logins.userId, reset.userId))
       .returning();
-    await tx.update(passwordResets).set({ usedAt: sql`now()` }).where(eq(passwordResets.tokenHash, reset.tokenHash));
+    // Every link for this user's password ends with it, not just the one used.
+    await tx
+      .update(passwordResets)
+      .set({ usedAt: sql`now()` })
+      .where(and(eq(passwordResets.userId, reset.userId), isNull(passwordResets.usedAt)));
     await tx.delete(sessions).where(eq(sessions.userId, reset.userId));
     // Whoever was guessing the old password is no reason to keep the new one out.
     await tx.delete(signInAttempts).where(eq(signInAttempts.loginKey, account!.loginKey));

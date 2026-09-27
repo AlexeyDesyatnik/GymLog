@@ -5,6 +5,8 @@ import {
   checkLogin,
   checkPassword,
   checkSyncRecord,
+  isUuid,
+  PASSWORD_MAX_LENGTH,
   replacesKept,
   type AccountSummary,
   type InviteAnswer,
@@ -14,7 +16,6 @@ import {
   type PullAnswer,
   type PushAnswer,
   type SessionAnswer,
-  type SignInRefusal,
   type SyncedRecord,
   type SyncRecord,
 } from "@gymlog/shared";
@@ -30,6 +31,7 @@ import {
   resetPassword,
   signIn,
   signUp,
+  type SignInOutcome,
 } from "./accounts.ts";
 import { records, sessions, users } from "./db/schema.ts";
 
@@ -92,7 +94,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
    * Answers an attempt to create an account, sign in or set a new password: signs the browser in
    * as the user, or says why not.
    */
-  async function answerSignIn(reply: FastifyReply, outcome: { userId: string } | { refusal: SignInRefusal }) {
+  async function answerSignIn(reply: FastifyReply, outcome: SignInOutcome) {
     if ("refusal" in outcome) return reply.code(403).send({ error: "Sign-in refused", refusal: outcome.refusal });
     const token = newToken();
     await db.insert(sessions).values({ tokenHash: hashOf(token), userId: outcome.userId });
@@ -134,11 +136,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   type SignIn = { Body: { login?: unknown; password?: unknown } };
   app.post<SignIn>("/api/sign-in", async (request, reply) => {
     const { login, password } = request.body ?? {};
-    // Only its kind: a password too short or too long simply isn't the one kept.
-    if (typeof login !== "string" || typeof password !== "string" || password.length > 1000) {
-      return reply.code(400).send({ error: "A login and a password are needed" });
+    if (refusedValue(reply, () => checkLogin(login))) return reply;
+    // No other check: a password too short simply isn't the one kept.
+    if (typeof password !== "string" || password.length > PASSWORD_MAX_LENGTH) {
+      return reply.code(400).send({ error: "A password is needed" });
     }
-    return answerSignIn(reply, await signIn(db, { login, password }));
+    return answerSignIn(reply, await signIn(db, { login: login as string, password }));
   });
 
   app.post("/api/invites", async (request, reply): Promise<InviteAnswer | FastifyReply> => {
@@ -162,7 +165,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   app.post<CreateReset>("/api/password-resets", async (request, reply): Promise<PasswordResetAnswer | FastifyReply> => {
     if (!(await signedInOwner(request, reply))) return reply;
     const { userId } = request.body ?? {};
-    const reset = typeof userId === "string" && UUID.test(userId) ? await createPasswordReset(db, userId) : null;
+    const reset = isUuid(userId) ? await createPasswordReset(db, userId) : null;
     if (!reset) return reply.code(404).send({ error: "No such account" });
     return { reset };
   });
@@ -275,9 +278,6 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     },
   };
 }
-
-/** A user's id, as the server makes them. */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function idOf(item: unknown): string | null {
   const id = (item as { id?: unknown } | null)?.id;

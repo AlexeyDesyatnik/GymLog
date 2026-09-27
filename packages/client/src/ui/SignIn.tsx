@@ -1,5 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { LOGIN_MAX_LENGTH, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, type SignInRefusal } from "@gymlog/shared";
+import {
+  LOGIN_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  SIGN_IN_LOCK_MINUTES,
+  type SignInRefusal,
+} from "@gymlog/shared";
 import type { Journal } from "../journal/journal.ts";
 import { SignInRefused } from "../sync/api.ts";
 import { workoutsHref } from "./useRoute.ts";
@@ -9,7 +15,7 @@ const REFUSAL_TEXT: Record<SignInRefusal, string> = {
   inviteUnusable: "Это приглашение уже использовано или недействительно. Если у вас уже есть аккаунт, войдите.",
   loginTaken: "Этот логин уже занят, выберите другой.",
   wrongPassword: "Неверный логин или пароль.",
-  tooManyAttempts: "Слишком много неверных паролей подряд. Попробуйте через 15 минут.",
+  tooManyAttempts: `Слишком много неверных паролей подряд. Попробуйте через ${SIGN_IN_LOCK_MINUTES} минут.`,
   resetUnusable: "Эта ссылка для нового пароля уже использована или устарела. Попросите у владельца новую.",
 };
 

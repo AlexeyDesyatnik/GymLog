@@ -50,10 +50,12 @@ export const logins = pgTable("logins", {
   passwordHash: text("password_hash"),
 });
 
-/** Wrong passwords per login, so guessing one is slowed down; kept for unknown logins too, so it tells nothing. */
+/** Sign-in attempts per login, so guessing one is slowed down; kept for unknown logins too, so it tells nothing. */
 export const signInAttempts = pgTable("sign_in_attempts", {
   loginKey: text("login_key").primaryKey(),
+  /** Attempts since the last one that got in, the ones under way included. */
   failures: integer("failures").notNull().default(0),
+  lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }).notNull().defaultNow(),
   /** Until then the login can't sign in, whatever the password. */
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
 });

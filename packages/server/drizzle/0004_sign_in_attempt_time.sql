@@ -1,0 +1,1 @@
+ALTER TABLE "sign_in_attempts" ADD COLUMN "last_attempt_at" timestamp with time zone DEFAULT now() NOT NULL;

@@ -86,6 +86,19 @@ test("after 5 wrong passwords for a login, even the right one is refused for a w
   await server.device().signIn("maria");
 });
 
+test("wrong passwords sent all at the same moment are held up alike: of 10 at once, only 5 get checked", async () => {
+  const server = await startTestServer();
+  await server.device().signUp("alexey");
+
+  const outcomes = await Promise.allSettled(
+    Array.from({ length: 10 }, (_, i) => server.device().signIn("alexey", `guess ${i + 1} of 10`)),
+  );
+
+  const refusals = outcomes.map((o) => (o.status === "rejected" ? (o.reason as { refusal?: string }).refusal : "in"));
+  expect(refusals.filter((r) => r === "wrongPassword")).toHaveLength(5);
+  expect(refusals.filter((r) => r === "tooManyAttempts")).toHaveLength(5);
+});
+
 test("a new user's Exercise catalog starts from the Starter list: an Exercise is found by its Russian name and shown by its English Primary name", async () => {
   const server = await startTestServer();
   const phone = server.device();
@@ -209,6 +222,7 @@ test("the owner's link for a new password sets it once: the old password stops w
   const maria = (await ownersPhone.journal.account.accounts()).find((a) => a.login === "maria")!;
 
   const reset = await ownersPhone.journal.account.createPasswordReset(maria.userId);
+  const earlierReset = await ownersPhone.journal.account.createPasswordReset(maria.userId);
   const mariasComputer = server.device();
   expect(await mariasComputer.journal.account.passwordResetLogin(reset)).toBe("maria");
   await mariasComputer.journal.account.resetPassword(reset, "new password");
@@ -222,6 +236,8 @@ test("the owner's link for a new password sets it once: the old password stops w
     refusal: "resetUnusable",
   });
   expect(await server.device().journal.account.passwordResetLogin(reset)).toBeNull();
+  // Any other link for her password given before ends with it.
+  expect(await server.device().journal.account.passwordResetLogin(earlierReset)).toBeNull();
 });
 
 test("only the owner can see accounts and create links for new passwords", async () => {
