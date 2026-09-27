@@ -28,7 +28,7 @@ UI layout, the feel of the phone keyboard and behavior on real devices are check
 
 ### Docker
 
-The sync tests (seam 2) and the dev server need Docker running: the tests start a clean PostgreSQL per run through Testcontainers, and `npm run dev` starts the dev database from `compose.yaml`. Tests of the Journal alone (seam 1) don't need it.
+The sync tests (seam 2), the end-to-end tests (seam 3) and the dev server need Docker running: the tests start a clean PostgreSQL per run through Testcontainers, and `npm run dev` starts the dev database from `compose.yaml`. Tests of the Journal alone (seam 1) don't need it.
 
 ### CI
 

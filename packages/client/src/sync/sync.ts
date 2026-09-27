@@ -44,6 +44,13 @@ export interface SyncOptions {
   url: string;
   /** For tests, a fetch with a cookie jar of its own. */
   fetch?: typeof fetch;
+  /**
+   * Calls the listener whenever the device comes back online; returns a function that stops it.
+   * The browser's `online` event by default; tests pass their own.
+   */
+  onOnline?: (listener: () => void) => () => void;
+  /** How long a request may go unanswered before it counts as failed; for tests, shorter than the default. */
+  timeoutMs?: number;
 }
 
 /** The Journal's side of sync: it says when the store is ready and when something changed. */
@@ -61,6 +68,11 @@ const POLL_MS = 5000;
 const PUSH_BATCH = 200;
 /** Sending stops for this round after this many batches, so constant typing can't keep it going forever. */
 const MAX_PUSH_BATCHES = 50;
+/**
+ * A request unanswered for this long is given up, as on a connection that stalled in the gym;
+ * until it is, no other sync can start.
+ */
+const TIMEOUT_MS = 20_000;
 
 /** The server refused the session: nobody is signed in on this device. */
 class SignedOut extends Error {}
@@ -72,6 +84,7 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
   let closed = false;
   let changeTimer: ReturnType<typeof setTimeout> | undefined;
   let pollTimer: ReturnType<typeof setInterval> | undefined;
+  let stopWatchingConnection: (() => void) | undefined;
   /** Looks for changes from other devices as soon as the app is back in view. */
   const onVisible = () => {
     if (document.visibilityState === "visible") poll();
@@ -92,6 +105,7 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
       method: body === undefined ? "GET" : "POST",
       headers: body === undefined ? undefined : { "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(options!.timeoutMs ?? TIMEOUT_MS),
     });
     if (response.status === 401) throw new SignedOut();
     if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
@@ -231,6 +245,8 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
       syncSoon();
       pollTimer = setInterval(poll, POLL_MS);
       if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisible);
+      // What was changed offline goes as soon as the connection is back, not at the next poll.
+      stopWatchingConnection = (options.onOnline ?? onBrowserOnline)(poll);
     },
     changed() {
       if (!options || closed) return;
@@ -242,8 +258,16 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
       clearTimeout(changeTimer);
       clearInterval(pollTimer);
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisible);
+      stopWatchingConnection?.();
     },
   };
+}
+
+/** The browser's word that the device is back online; nothing outside a browser. */
+function onBrowserOnline(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("online", listener);
+  return () => window.removeEventListener("online", listener);
 }
 
 function withoutMark(record: SyncedRecord & Unsynced): SyncedRecord {

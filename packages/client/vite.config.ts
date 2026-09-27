@@ -1,8 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-/** The GymLog server run by `npm run dev`; the app reaches it through Vite, as one site. */
-const api = { "/api": "http://127.0.0.1:3000" };
+/**
+ * The GymLog server run by `npm run dev`, or the end-to-end run's own one on SERVER_PORT; the
+ * app reaches it through Vite, as one site.
+ */
+const api = { "/api": `http://127.0.0.1:${process.env.SERVER_PORT ?? 3000}` };
 
 export default defineConfig({
   plugins: [react()],

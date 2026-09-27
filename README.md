@@ -4,7 +4,7 @@ A strength-training log as quick to fill in as a paper notebook. See `vision.md`
 
 ## Requirements
 
-Node.js 24, npm and Docker Desktop. Docker must be running for `npm run dev` (it starts the database) and for `npm test` (the sync tests start their own PostgreSQL). On Windows, use the WSL 2 backend and limit its memory, e.g. to 4 GB.
+Node.js 24, npm and Docker Desktop. Docker must be running for `npm run dev` (it starts the database), `npm test` (the sync tests start their own PostgreSQL) and `npm run test:e2e` (so do the end-to-end tests, with a server of their own on port 4176). On Windows, use the WSL 2 backend and limit its memory, e.g. to 4 GB.
 
 ## Commands
 

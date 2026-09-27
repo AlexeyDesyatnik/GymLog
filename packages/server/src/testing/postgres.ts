@@ -2,7 +2,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testconta
 import type { TestProject } from "vitest/node";
 
 /** The same image and version as the dev database in compose.yaml and the server's. */
-const POSTGRES_IMAGE = "postgres:18-alpine";
+export const POSTGRES_IMAGE = "postgres:18-alpine";
 
 declare module "vitest" {
   export interface ProvidedContext {

@@ -1,13 +1,18 @@
 import { defineConfig, devices } from "@playwright/test";
+import { E2E_SERVER_PORT } from "./e2e/server.ts";
 
 const port = 4175;
 
-/** End-to-end flows (seam 3): the real app in a phone-sized Chromium, each test on an empty IndexedDB. */
+/**
+ * End-to-end flows (seam 3): the real app in a phone-sized Chromium, each test on an empty
+ * IndexedDB, syncing with the real server on a clean PostgreSQL in Docker.
+ */
 export default defineConfig({
   testDir: "e2e",
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
+  globalSetup: "./e2e/server.ts",
   use: {
     baseURL: `http://localhost:${port}`,
     trace: "retain-on-failure",
@@ -17,6 +22,8 @@ export default defineConfig({
   webServer: {
     command: `npm run dev -w @gymlog/client -- --port ${port} --strictPort`,
     url: `http://localhost:${port}`,
+    // The app passes its /api requests on to the run's own server, not the dev one.
+    env: { SERVER_PORT: String(E2E_SERVER_PORT) },
     reuseExistingServer: !process.env.CI,
   },
 });

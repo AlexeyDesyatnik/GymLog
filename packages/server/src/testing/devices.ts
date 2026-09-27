@@ -24,15 +24,27 @@ export interface Device {
   fetch: typeof fetch;
   /** The server gets this device's next request, but its answer is lost on the way back. */
   loseNextAnswer(): void;
+  /**
+   * The connection drops in the middle of this device's next push: its first request reaches
+   * the server, the answer is lost, and the device is offline from then on.
+   */
+  dropConnectionMidPush(): void;
+  /** This device's next request never gets an answer, as on a connection that stalls. */
+  stallNextRequest(): void;
   /** Takes this device offline: its requests fail until it goes online again. */
   goOffline(): void;
-  /** Brings this device back online. */
+  /** Brings this device back online; the device hears that its connection is back. */
   goOnline(): void;
+  /** The session on this device expires: the server no longer knows who is signed in there. */
+  expireSession(): void;
   /** Sets this device's clock to this time, in milliseconds; it ticks by 1 ms per reading from there. */
   setClock(time: number): void;
-  /** Closes the app on this device and opens it again, still signed in. */
+  /** Closes the app on this device and opens it again, still signed in and on the same connection. */
   reopen(): Device;
 }
+
+/** How long a device waits for an answer before it gives the request up; short, so tests of a stalled one are quick. */
+const DEVICE_TIMEOUT_MS = 2_000;
 
 let databaseCount = 0;
 
@@ -42,30 +54,28 @@ export async function startTestServer(): Promise<TestServer> {
   const server = await startServer({ databaseUrl, host: "127.0.0.1", port: 0, testSignIn: true });
   onTestFinished(() => server.close());
 
-  /** A browser with this local store, cookie jar and clock, where the app has just opened. */
-  function openDevice(store: string, jarFetch: typeof fetch, clock: Clock): Device {
-    let losingAnswer = false;
-    let offline = false;
-    const deviceFetch: typeof fetch = async (input, init) => {
-      if (offline) throw new TypeError("fetch failed: offline");
-      const response = await jarFetch(input, init);
-      if (!losingAnswer) return response;
-      losingAnswer = false;
-      throw new TypeError("fetch failed: the answer was lost");
-    };
-    const journal = openJournal({ name: store, now: clock.read, server: { url: server.url, fetch: deviceFetch } });
+  /** A browser with this local store, connection and clock, where the app has just opened. */
+  function openDevice(store: string, connection: Connection, clock: Clock): Device {
+    const journal = openJournal({
+      name: store,
+      now: clock.read,
+      server: {
+        url: server.url,
+        fetch: connection.fetch,
+        onOnline: connection.onOnline,
+        timeoutMs: DEVICE_TIMEOUT_MS,
+      },
+    });
     onTestFinished(() => journal.close());
     return {
+      ...connection.control,
       journal,
       signIn: (name) => journal.sync.testSignIn(name),
-      fetch: deviceFetch,
-      loseNextAnswer: () => (losingAnswer = true),
-      goOffline: () => (offline = true),
-      goOnline: () => (offline = false),
+      fetch: connection.fetch,
       setClock: clock.set,
       reopen: () => {
         journal.close();
-        return openDevice(store, jarFetch, clock);
+        return openDevice(store, connection, clock);
       },
     };
   }
@@ -73,7 +83,69 @@ export async function startTestServer(): Promise<TestServer> {
   return {
     url: server.url,
     device(store = uniqueJournalName()) {
-      return openDevice(store, cookieJarFetch(), tickingClock());
+      return openDevice(store, deviceConnection(), tickingClock());
+    },
+  };
+}
+
+type ConnectionControl = Pick<
+  Device,
+  "loseNextAnswer" | "dropConnectionMidPush" | "stallNextRequest" | "goOffline" | "goOnline" | "expireSession"
+>;
+
+/** A device's network and cookies: what stays the same when the app is closed and opened again. */
+interface Connection {
+  fetch: typeof fetch;
+  /** Calls the listener whenever the device comes back online; returns a function that stops it. */
+  onOnline(listener: () => void): () => void;
+  control: ConnectionControl;
+}
+
+function deviceConnection(): Connection {
+  const jar = cookieJar();
+  let offline = false;
+  let losingAnswer = false;
+  let droppingMidPush = false;
+  let stalling = false;
+  const onlineListeners = new Set<() => void>();
+
+  const connectionFetch: typeof fetch = async (input, init) => {
+    if (offline) throw new TypeError("fetch failed: offline");
+    if (stalling) {
+      stalling = false;
+      // Never answered; only the device giving up ends it.
+      return new Promise((_, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
+      });
+    }
+    const pushing = String(input).includes("/api/sync/push");
+    const response = await jar.fetch(input, init);
+    if (droppingMidPush && pushing) {
+      droppingMidPush = false;
+      offline = true;
+      throw new TypeError("fetch failed: the connection dropped");
+    }
+    if (!losingAnswer) return response;
+    losingAnswer = false;
+    throw new TypeError("fetch failed: the answer was lost");
+  };
+
+  return {
+    fetch: connectionFetch,
+    onOnline(listener) {
+      onlineListeners.add(listener);
+      return () => onlineListeners.delete(listener);
+    },
+    control: {
+      loseNextAnswer: () => (losingAnswer = true),
+      dropConnectionMidPush: () => (droppingMidPush = true),
+      stallNextRequest: () => (stalling = true),
+      goOffline: () => (offline = true),
+      goOnline: () => {
+        offline = false;
+        for (const listener of onlineListeners) listener();
+      },
+      expireSession: jar.clear,
     },
   };
 }
@@ -107,10 +179,10 @@ async function createDatabase(): Promise<string> {
   return url.href;
 }
 
-/** fetch that keeps the cookies the server sets and sends them back, as a browser does. */
-function cookieJarFetch(): typeof fetch {
+/** fetch that keeps the cookies the server sets and sends them back, as a browser does; clear forgets them. */
+function cookieJar(): { fetch: typeof fetch; clear(): void } {
   const cookies = new Map<string, string>();
-  return async (input, init) => {
+  const jarFetch: typeof fetch = async (input, init) => {
     const headers = new Headers(init?.headers);
     if (cookies.size > 0) headers.set("cookie", [...cookies].map(([name, value]) => `${name}=${value}`).join("; "));
     const response = await fetch(input, { ...init, headers });
@@ -121,6 +193,7 @@ function cookieJarFetch(): typeof fetch {
     }
     return response;
   };
+  return { fetch: jarFetch, clear: () => cookies.clear() };
 }
 
 /** Sends records to the server as this device, the way a client of any make could. */
