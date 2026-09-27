@@ -1,6 +1,7 @@
 /**
  * The one-off command that sets GymLog up: creates the owner's own first Invite and prints its
- * link. Whoever signs in through it becomes the owner, who then creates Invites in the app.
+ * link. Whoever creates an account through it becomes the owner, who then creates Invites in
+ * the app.
  */
 import { createOwnerInvite, openDatabase } from "./accounts.ts";
 
@@ -13,7 +14,8 @@ if (!appUrl) throw new Error("APP_URL is not set");
 const database = await openDatabase(databaseUrl);
 try {
   const invite = await createOwnerInvite(database.db);
-  console.log(`The owner's Invite; open it and sign in with VK ID:\n${new URL(`/#/invite/${invite}`, appUrl).href}`);
+  const link = new URL(`/#/invite/${invite}`, appUrl).href;
+  console.log(`The owner's Invite; open it and choose a login and a password:\n${link}`);
 } finally {
   await database.close();
 }

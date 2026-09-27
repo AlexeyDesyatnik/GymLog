@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ChangeNotSaved, type Journal } from "../journal/journal.ts";
-import { SignInScreen } from "./SignIn.tsx";
+import { PasswordResetScreen, SignInScreen, SignUpScreen } from "./SignIn.tsx";
 import { StoreProblem, type StoreProblemState } from "./StoreProblem.tsx";
 import { useRoute } from "./useRoute.ts";
 import { useToday } from "./useToday.ts";
@@ -26,10 +26,13 @@ export function App({ journal }: { journal: Journal }) {
 
   // Nothing is recorded before the first sign-in, so every record has an owner.
   const firstLaunch = sync.status === "neverSignedIn";
-  if (firstLaunch || route.screen === "signIn") {
-    const { invite, problem } = route.screen === "signIn" ? route : {};
-    return <SignInScreen journal={journal} invite={invite} problem={problem} firstLaunch={firstLaunch} />;
+  if (route.screen === "signUp") {
+    return <SignUpScreen journal={journal} invite={route.invite} firstLaunch={firstLaunch} />;
   }
+  if (route.screen === "passwordReset") {
+    return <PasswordResetScreen journal={journal} reset={route.reset} firstLaunch={firstLaunch} />;
+  }
+  if (firstLaunch) return <SignInScreen journal={journal} />;
   return route.screen === "workout" ? (
     <WorkoutScreen key={route.workoutId} journal={journal} workoutId={route.workoutId} today={today} />
   ) : (

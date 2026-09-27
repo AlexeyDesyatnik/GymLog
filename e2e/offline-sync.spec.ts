@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { newUserName, signIn, signUp } from "./signIn.ts";
+import { newLogin, signIn, signUp } from "./signIn.ts";
 
 test("Sets recorded on a phone offline reach the user's computer once the phone is back online", async ({
   page: phone,
@@ -7,7 +7,7 @@ test("Sets recorded on a phone offline reach the user's computer once the phone 
   browser,
   baseURL,
 }) => {
-  const user = newUserName("offline");
+  const user = newLogin("offline");
   const computerContext = await browser.newContext({ baseURL });
   const computer = await computerContext.newPage();
   await signUp(phone, baseURL!, user);

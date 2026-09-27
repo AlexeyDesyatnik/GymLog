@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
-import { newUserName, signUp } from "./signIn.ts";
+import { newLogin, signUp } from "./signIn.ts";
 
 test("plan a Workout, confirm Sets and Finish it: what wasn't recorded is Not performed", async ({ page, baseURL }) => {
-  await signUp(page, baseURL!, newUserName("finish"));
+  await signUp(page, baseURL!, newLogin("finish"));
   await page.getByRole("button", { name: "Новая тренировка" }).click();
   await page.getByRole("link", { name: /сегодня/ }).click();
 

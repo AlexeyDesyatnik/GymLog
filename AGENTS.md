@@ -19,7 +19,7 @@ Logic is built test-first with the `tdd` skill: one failing test, the minimal co
 Tests are written only at these seams; everything else is exercised through them, never tested on its own. Adding a seam needs the owner's agreement.
 
 1. **Journal module** (client domain logic behind one public interface, on a real in-memory IndexedDB): Plan notation (enter Plan text, read back Entries and Sets), Workout operations (confirming, editing and adding Sets, Substitute, Finished and undoing it, the derived Not performed and replaced states), Templates and number prefill, and the Exercise catalog (implicit creation, lookup by any name, suggestion ranking, Merge, refusing to delete an Exercise with history).
-2. **Sync end to end**: two Journal instances ↔ the real server ↔ real PostgreSQL (no database fakes; VK ID sign-in replaced by a test sign-in). Covers resending without duplicates, last write wins, deleting wins over editing, offline → online, Invites, and **data isolation**: a user can never read or change another user's data.
+2. **Sync end to end**: two Journal instances ↔ the real server ↔ real PostgreSQL (no database fakes; devices sign in with logins and passwords, as users do). Covers resending without duplicates, last write wins, deleting wins over editing, offline → online, Invites, and **data isolation**: a user can never read or change another user's data.
 3. **End-to-end** (Playwright, mobile viewport), a few key flows only: plan → confirm Sets → finish; record offline → sync.
 
 ### Not covered by tests

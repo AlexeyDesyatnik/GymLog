@@ -1,9 +1,15 @@
 export { localDate, localDateOf, localDateToDate, type LocalDate } from "./local-date.ts";
 export {
+  checkLogin,
+  checkPassword,
   checkRpe,
   checkSetValues,
   checkSyncRecord,
   exerciseNameKey,
+  LOGIN_MAX_LENGTH,
+  loginKey,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
   RPE_BELOW_5,
   RPE_SCALE,
   TARGET_RPE_SCALE,
@@ -18,18 +24,20 @@ export {
   type PlanLine,
   type PlanLineProblem,
 } from "./plan-notation.ts";
-export { RECORD_TYPES, replacesKept, SIGN_IN_PROBLEMS } from "./records.ts";
+export { RECORD_TYPES, replacesKept } from "./records.ts";
 export type {
+  AccountSummary,
   EntryRecord,
   ExerciseRecord,
   InviteAnswer,
   InviteCheck,
+  PasswordResetAnswer,
+  PasswordResetCheck,
   PullAnswer,
   PushAnswer,
   RecordType,
   SessionAnswer,
   SetRecord,
-  SignInProblem,
   SignInRefusal,
   SyncedRecord,
   SyncRecord,

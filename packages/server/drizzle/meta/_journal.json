@@ -15,6 +15,20 @@
       "when": 1790520361157,
       "tag": "0001_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790530663816,
+      "tag": "0002_logins",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790530673725,
+      "tag": "0003_drop_identities",
+      "breakpoints": true
     }
   ]
 }

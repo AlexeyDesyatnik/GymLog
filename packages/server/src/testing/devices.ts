@@ -3,10 +3,10 @@ import pg from "pg";
 import type { PushAnswer, SyncRecord } from "@gymlog/shared";
 import { openJournal, type Journal } from "@gymlog/client/journal";
 import { uniqueJournalName } from "@gymlog/client/testing";
-import { createOwnerInvite, openDatabase } from "../accounts.ts";
+import { createOwnerInvite, createOwnerPasswordReset, openDatabase } from "../accounts.ts";
 import { startServer } from "../server.ts";
 
-/** The real server on a database of its own, with the test sign-in. */
+/** The real server on a database of its own. */
 export interface TestServer {
   url: string;
   /**
@@ -16,21 +16,22 @@ export interface TestServer {
   device(store?: string): Device;
   /** The owner's own first Invite, as the server command that sets GymLog up gives it. */
   ownerInvite(): Promise<string>;
+  /** A link for the owner's own new password, as the server command gives it. */
+  ownerPasswordReset(): Promise<string>;
+  /** A fresh Invite from the test's owner, who gets an account of their own the first time. */
+  inviteFromOwner(): Promise<string>;
 }
 
 /** One browser: a Journal on its own local store and a cookie jar of its own. */
 export interface Device {
   journal: Journal;
+  /** Signs this device in with this login and its test password (see testPassword), or the password given. */
+  signIn(login: string, password?: string): Promise<void>;
   /**
-   * Signs this device in with the test sign-in in place of VK ID, as the person of this name,
-   * through this Invite if given, and syncs.
+   * Creates an account with this login and its test password, or the password given, through
+   * this Invite, or a fresh one from the test's owner, and signs this device in.
    */
-  signIn(name: string, invite?: string): Promise<void>;
-  /**
-   * Signs this device in as a new user of this name, who gets an account through a fresh
-   * Invite from the owner, and syncs.
-   */
-  signUp(name: string): Promise<void>;
+  signUp(login: string, options?: { invite?: string; password?: string }): Promise<void>;
   /** Requests to the server as this device, carrying its session cookie. */
   fetch: typeof fetch;
   /** The server gets this device's next request, but its answer is lost on the way back. */
@@ -62,7 +63,7 @@ let databaseCount = 0;
 /** Starts the server on a fresh database; it stops, with its devices, when the test ends. */
 export async function startTestServer(): Promise<TestServer> {
   const databaseUrl = await createDatabase();
-  const server = await startServer({ databaseUrl, host: "127.0.0.1", port: 0, testSignIn: true, vkId: null });
+  const server = await startServer({ databaseUrl, host: "127.0.0.1", port: 0 });
   onTestFinished(() => server.close());
   const database = await openDatabase(databaseUrl);
   onTestFinished(() => database.close());
@@ -72,10 +73,10 @@ export async function startTestServer(): Promise<TestServer> {
   async function inviteFromOwner(): Promise<string> {
     owner ??= (async () => {
       const ownersDevice = openDevice(uniqueJournalName(), deviceConnection(), tickingClock());
-      await ownersDevice.signIn("the owner", await ownerInvite());
+      await ownersDevice.signUp("the owner", { invite: await ownerInvite() });
       return ownersDevice;
     })();
-    return (await owner).journal.sync.createInvite();
+    return (await owner).journal.account.createInvite();
   }
 
   /** A browser with this local store, connection and clock, where the app has just opened. */
@@ -94,8 +95,9 @@ export async function startTestServer(): Promise<TestServer> {
     return {
       ...connection.control,
       journal,
-      signIn: (name, invite) => journal.sync.testSignIn(name, invite),
-      signUp: async (name) => journal.sync.testSignIn(name, await inviteFromOwner()),
+      signIn: (login, password = testPassword(login)) => journal.account.signIn(login, password),
+      signUp: async (login, { invite, password = testPassword(login) } = {}) =>
+        journal.account.signUp(invite ?? (await inviteFromOwner()), login, password),
       fetch: connection.fetch,
       setClock: clock.set,
       reopen: () => {
@@ -111,7 +113,14 @@ export async function startTestServer(): Promise<TestServer> {
       return openDevice(store, deviceConnection(), tickingClock());
     },
     ownerInvite,
+    ownerPasswordReset: () => createOwnerPasswordReset(database.db),
+    inviteFromOwner,
   };
+}
+
+/** The password tests give a login unless they choose one. */
+export function testPassword(login: string): string {
+  return `${login.trim()}'s password`;
 }
 
 type ConnectionControl = Pick<

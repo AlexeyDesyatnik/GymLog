@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { SIGN_IN_PROBLEMS, type SignInProblem } from "@gymlog/shared";
 
 export type Route =
   | { screen: "workouts" }
   | { screen: "workout"; workoutId: string }
-  /** Signing in: through an Invite opened from its link, or after the server said why it didn't work. */
-  | { screen: "signIn"; invite?: string; problem?: SignInProblem };
+  /** Creating an account through an Invite opened from its link. */
+  | { screen: "signUp"; invite: string }
+  /** Setting a new password through the owner's link. */
+  | { screen: "passwordReset"; reset: string };
 
 /** Screens live in the URL hash, so the phone's back button and a reload keep the user in place. */
 export function useRoute(): Route {
@@ -31,17 +32,17 @@ export function inviteLink(invite: string): string {
   return new URL(`#/invite/${invite}`, window.location.href).href;
 }
 
+/** The link for a new password, to send to the user who forgot theirs. */
+export function passwordResetLink(reset: string): string {
+  return new URL(`#/reset/${reset}`, window.location.href).href;
+}
+
 function parse(hash: string): Route {
   const workout = /^#\/workout\/([^/]+)$/.exec(hash);
   if (workout) return { screen: "workout", workoutId: decodeURIComponent(workout[1]!) };
   const invite = /^#\/invite\/([^/]+)$/.exec(hash);
-  if (invite) return { screen: "signIn", invite: decodeURIComponent(invite[1]!) };
-  const problem = /^#\/sign-in\/([^/]+)$/.exec(hash)?.[1];
-  if (isSignInProblem(problem)) return { screen: "signIn", problem };
+  if (invite) return { screen: "signUp", invite: decodeURIComponent(invite[1]!) };
+  const reset = /^#\/reset\/([^/]+)$/.exec(hash);
+  if (reset) return { screen: "passwordReset", reset: decodeURIComponent(reset[1]!) };
   return { screen: "workouts" };
-}
-
-/** One of the problems the server names when it sends the browser back to the app without signing it in. */
-function isSignInProblem(text: string | undefined): text is SignInProblem {
-  return (SIGN_IN_PROBLEMS as readonly (string | undefined)[]).includes(text);
 }

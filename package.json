@@ -9,6 +9,7 @@
     "db": "docker compose up -d --wait",
     "dev": "npm run db && concurrently --names server,client --kill-others-on-fail \"npm run dev -w @gymlog/server\" \"npm run dev -w @gymlog/client\"",
     "owner-invite": "npm run db && npm run owner-invite:dev -w @gymlog/server",
+    "owner-password": "npm run db && npm run owner-password:dev -w @gymlog/server",
     "build": "npm run build -w @gymlog/client",
     "typecheck": "tsc -p packages/shared && tsc -p packages/client && tsc -p packages/client/tsconfig.node.json && tsc -p packages/server && tsc -p e2e",
     "test": "vitest run",

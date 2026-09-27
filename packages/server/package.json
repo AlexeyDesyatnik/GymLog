@@ -6,6 +6,8 @@
     "dev": "node --watch --env-file=.env.development src/main.ts",
     "owner-invite": "node src/owner-invite.ts",
     "owner-invite:dev": "node --env-file=.env.development src/owner-invite.ts",
+    "owner-password": "node src/owner-password.ts",
+    "owner-password:dev": "node --env-file=.env.development src/owner-password.ts",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

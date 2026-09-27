@@ -3,10 +3,10 @@ import {
   bigint,
   boolean,
   index,
+  integer,
   jsonb,
   pgSequence,
   pgTable,
-  primaryKey,
   text,
   timestamp,
   uuid,
@@ -36,20 +36,41 @@ export const invites = pgTable("invites", {
 });
 
 /**
- * How a user signs in: a provider and the user's id there. VK ID is the provider "vk" with the
- * VK user id; the test sign-in is the provider "test" with the name typed.
+ * How a user signs in: a login and a password (ADR 0007). The password is kept only as a slow
+ * hash; it is missing on accounts from before passwords, until the owner's link sets one.
  */
-export const identities = pgTable(
-  "identities",
-  {
-    provider: text("provider").notNull(),
-    subject: text("subject").notNull(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id),
-  },
-  (t) => [primaryKey({ columns: [t.provider, t.subject] })],
-);
+export const logins = pgTable("logins", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id),
+  /** As the user typed it, for the owner's list of accounts. */
+  login: text("login").notNull(),
+  /** The login as it is matched, ignoring case and extra spaces; one per account. */
+  loginKey: text("login_key").notNull().unique(),
+  passwordHash: text("password_hash"),
+});
+
+/** Wrong passwords per login, so guessing one is slowed down; kept for unknown logins too, so it tells nothing. */
+export const signInAttempts = pgTable("sign_in_attempts", {
+  loginKey: text("login_key").primaryKey(),
+  failures: integer("failures").notNull().default(0),
+  /** Until then the login can't sign in, whatever the password. */
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+});
+
+/**
+ * One-time links from the owner through which a user sets a new password. Only a hash of each
+ * link's token is kept, like an Invite's.
+ */
+export const passwordResets = pgTable("password_resets", {
+  tokenHash: text("token_hash").primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+});
 
 /** Signed-in browsers. Only a hash of each session's token is kept, so the table can't be used to sign in. */
 export const sessions = pgTable("sessions", {

@@ -8,6 +8,7 @@ import {
   toExercise,
   toPerformedSet,
 } from "./entryView.ts";
+import { openAccount, type Account } from "../sync/account.ts";
 import { openSync, type Sync, type SyncOptions, type SyncState } from "../sync/sync.ts";
 import { newId } from "./ids.ts";
 import {
@@ -25,7 +26,7 @@ import {
   type StoreState,
 } from "./store.ts";
 
-export type { StoreState, Sync, SyncState };
+export type { Account, StoreState, Sync, SyncState };
 
 export interface Workout {
   id: string;
@@ -165,6 +166,8 @@ export interface Journal {
   setPlan(workoutId: string, notation: string): Promise<PlanLine[]>;
   /** Keeps the records here and on the user's other devices in step, by way of the server. */
   readonly sync: Sync;
+  /** The user's account on the server: creating it, signing in, and what the owner does for others. */
+  readonly account: Account;
   close(): void;
 }
 
@@ -215,6 +218,7 @@ const CHANGES: {
   setComment: true,
   setPlan: true,
   sync: false,
+  account: false,
   close: false,
 };
 
@@ -585,6 +589,8 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
     },
 
     sync,
+
+    account: openAccount(server, sync),
 
     close() {
       closed = true;

@@ -2,33 +2,42 @@ import cookie from "@fastify/cookie";
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import {
+  checkLogin,
+  checkPassword,
   checkSyncRecord,
   replacesKept,
-  type PullAnswer,
+  type AccountSummary,
   type InviteAnswer,
   type InviteCheck,
+  type PasswordResetAnswer,
+  type PasswordResetCheck,
+  type PullAnswer,
   type PushAnswer,
   type SessionAnswer,
-  type SignInProblem,
+  type SignInRefusal,
   type SyncedRecord,
   type SyncRecord,
 } from "@gymlog/shared";
-import { createInvite, hashOf, inviteUsable, newToken, openDatabase, signIn, type Identity } from "./accounts.ts";
+import {
+  createInvite,
+  createPasswordReset,
+  hashOf,
+  inviteUsable,
+  listAccounts,
+  newToken,
+  openDatabase,
+  passwordResetLogin,
+  resetPassword,
+  signIn,
+  signUp,
+} from "./accounts.ts";
 import { records, sessions, users } from "./db/schema.ts";
-import { vkId, type VkIdOptions } from "./vk-id.ts";
 
 export interface ServerOptions {
   databaseUrl: string;
   host: string;
   /** 0 picks a free port. */
   port: number;
-  /**
-   * Sign-in by name alone in place of VK ID, for tests and local development; the rules of
-   * Invites still hold. Never in production: anyone could sign in as anyone.
-   */
-  testSignIn: boolean;
-  /** The app's registration with VK ID; without one, VK ID sign-in is unavailable. */
-  vkId: VkIdOptions | null;
 }
 
 export interface RunningServer {
@@ -41,8 +50,6 @@ export interface RunningServer {
 export const BATCH_LIMIT = 500;
 
 const SESSION_COOKIE = "gymlog_session";
-/** Holds a VK ID sign-in under way, while the browser is at VK ID. */
-const VK_SIGN_IN_COOKIE = "gymlog_vk_sign_in";
 /** The longest a browser keeps a cookie. */
 const SESSION_DAYS = 400;
 
@@ -74,10 +81,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     return session ?? null;
   }
 
-  /** Signs the browser in as the user the provider vouched for, if the rules of Invites let them in. */
-  async function startSession(reply: FastifyReply, identity: Identity, invite: string | null) {
-    const outcome = await signIn(db, identity, invite);
-    if ("refusal" in outcome) return outcome;
+  /** The signed-in user, if they are the owner; otherwise the request is answered 401 or 403 and null is returned. */
+  async function signedInOwner(request: FastifyRequest, reply: FastifyReply): Promise<SessionAnswer | null> {
+    const session = await signedInUser(request, reply);
+    if (session && !session.owner) reply.code(403).send({ error: "Only the owner may" });
+    return session?.owner ? session : null;
+  }
+
+  /**
+   * Answers an attempt to create an account, sign in or set a new password: signs the browser in
+   * as the user, or says why not.
+   */
+  async function answerSignIn(reply: FastifyReply, outcome: { userId: string } | { refusal: SignInRefusal }) {
+    if ("refusal" in outcome) return reply.code(403).send({ error: "Sign-in refused", refusal: outcome.refusal });
     const token = newToken();
     await db.insert(sessions).values({ tokenHash: hashOf(token), userId: outcome.userId });
     reply.setCookie(SESSION_COOKIE, token, {
@@ -90,82 +106,78 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     return outcome;
   }
 
+  /** Answers 400 with the problem, when a value sent is refused by the shared rules. */
+  function refusedValue(reply: FastifyReply, check: () => void): boolean {
+    try {
+      check();
+      return false;
+    } catch (error) {
+      reply.code(400).send({ error: error instanceof RangeError ? error.message : String(error) });
+      return true;
+    }
+  }
+
   app.get("/api/session", async (request, reply) => {
     const session = await signedInUser(request, reply);
     if (!session) return reply;
     return session;
   });
 
-  if (options.testSignIn) {
-    type TestSignIn = { Body: { name?: unknown; invite?: unknown } };
-    app.post<TestSignIn>("/api/test-sign-in", async (request, reply) => {
-      const { name, invite } = request.body ?? {};
-      if (typeof name !== "string" || name.trim() === "") return reply.code(400).send({ error: "A name is needed" });
-      if (invite !== undefined && typeof invite !== "string") return reply.code(400).send({ error: "invite is text" });
-      const outcome = await startSession(reply, { provider: "test", subject: name.trim() }, invite ?? null);
-      if ("refusal" in outcome) return reply.code(403).send({ error: "Sign-in refused", refusal: outcome.refusal });
-      return outcome;
-    });
-  }
-
-  app.post("/api/invites", async (request, reply): Promise<InviteAnswer | FastifyReply> => {
-    const session = await signedInUser(request, reply);
-    if (!session) return reply;
-    if (!session.owner) return reply.code(403).send({ error: "Only the owner creates Invites" });
-    return { invite: await createInvite(db, session.userId) };
+  type SignUp = { Body: { invite?: unknown; login?: unknown; password?: unknown } };
+  app.post<SignUp>("/api/sign-up", async (request, reply) => {
+    const { invite, login, password } = request.body ?? {};
+    if (typeof invite !== "string") return reply.code(400).send({ error: "An Invite is needed" });
+    if (refusedValue(reply, () => (checkLogin(login), checkPassword(password)))) return reply;
+    return answerSignIn(reply, await signUp(db, { invite, login: login as string, password: password as string }));
   });
 
-  // Before signing in, so the app can say at once that an Invite is used up.
+  type SignIn = { Body: { login?: unknown; password?: unknown } };
+  app.post<SignIn>("/api/sign-in", async (request, reply) => {
+    const { login, password } = request.body ?? {};
+    // Only its kind: a password too short or too long simply isn't the one kept.
+    if (typeof login !== "string" || typeof password !== "string" || password.length > 1000) {
+      return reply.code(400).send({ error: "A login and a password are needed" });
+    }
+    return answerSignIn(reply, await signIn(db, { login, password }));
+  });
+
+  app.post("/api/invites", async (request, reply): Promise<InviteAnswer | FastifyReply> => {
+    const owner = await signedInOwner(request, reply);
+    if (!owner) return reply;
+    return { invite: await createInvite(db, owner.userId) };
+  });
+
+  // Before creating an account, so the app can say at once that an Invite is used up.
   type CheckInvite = { Params: { invite: string } };
   app.get<CheckInvite>("/api/invites/:invite", async (request): Promise<InviteCheck> => {
     return { usable: await inviteUsable(db, request.params.invite) };
   });
 
-  const vk = options.vkId && vkId(options.vkId);
-
-  type VkStart = { Querystring: { invite?: unknown } };
-  /**
-   * Starts signing in with VK ID, through the Invite given, if any: sends the browser to VK ID,
-   * remembering what checks its way back.
-   */
-  app.get<VkStart>("/api/vk/start", async (request, reply) => {
-    if (!vk) return reply.redirect(signInProblemPath("unavailable"));
-    const { invite } = request.query;
-    const pending: PendingVkSignIn = {
-      state: newToken(),
-      codeVerifier: newToken(),
-      invite: typeof invite === "string" ? invite : null,
-    };
-    reply.setCookie(VK_SIGN_IN_COOKIE, JSON.stringify(pending), {
-      path: "/api/vk",
-      httpOnly: true,
-      // Sent along when VK ID sends the browser back, which is a plain link from another site.
-      sameSite: "lax",
-      secure: "auto",
-      maxAge: 10 * 60,
-    });
-    return reply.redirect(vk.authorizeUrl(pending));
+  app.get("/api/accounts", async (request, reply): Promise<AccountSummary[] | FastifyReply> => {
+    if (!(await signedInOwner(request, reply))) return reply;
+    return listAccounts(db);
   });
 
-  type VkCallback = { Querystring: { code?: unknown; state?: unknown; device_id?: unknown } };
-  /** Where VK ID sends the browser back: signs it in, then opens the app, or says why it wasn't. */
-  app.get<VkCallback>("/api/vk/callback", async (request, reply) => {
-    const pending = pendingVkSignIn(request.cookies[VK_SIGN_IN_COOKIE]);
-    reply.clearCookie(VK_SIGN_IN_COOKIE, { path: "/api/vk" });
-    const { code, state, device_id: deviceId } = request.query;
-    // A state that isn't the one this browser set off with is someone else's sign-in slipped in.
-    if (!vk || !pending || typeof code !== "string" || typeof deviceId !== "string" || state !== pending.state) {
-      return reply.redirect(signInProblemPath("failed"));
-    }
-    let subject: string;
-    try {
-      subject = await vk.userIdFor({ code, deviceId, state, codeVerifier: pending.codeVerifier });
-    } catch (error) {
-      console.error("VK ID sign-in failed", error);
-      return reply.redirect(signInProblemPath("failed"));
-    }
-    const outcome = await startSession(reply, { provider: "vk", subject }, pending.invite);
-    return reply.redirect("refusal" in outcome ? signInProblemPath(outcome.refusal) : "/");
+  type CreateReset = { Body: { userId?: unknown } };
+  app.post<CreateReset>("/api/password-resets", async (request, reply): Promise<PasswordResetAnswer | FastifyReply> => {
+    if (!(await signedInOwner(request, reply))) return reply;
+    const { userId } = request.body ?? {};
+    const reset = typeof userId === "string" && UUID.test(userId) ? await createPasswordReset(db, userId) : null;
+    if (!reset) return reply.code(404).send({ error: "No such account" });
+    return { reset };
+  });
+
+  // Before setting the password, so the app can name the login, or say the link is used up.
+  type CheckReset = { Params: { reset: string } };
+  app.get<CheckReset>("/api/password-resets/:reset", async (request): Promise<PasswordResetCheck> => {
+    return { login: await passwordResetLogin(db, request.params.reset) };
+  });
+
+  type Reset = { Params: { reset: string }; Body: { password?: unknown } };
+  app.post<Reset>("/api/password-resets/:reset", async (request, reply) => {
+    const { password } = request.body ?? {};
+    if (refusedValue(reply, () => checkPassword(password))) return reply;
+    return answerSignIn(reply, await resetPassword(db, { reset: request.params.reset, password: password as string }));
   });
 
   type Push = { Body: { records?: unknown } };
@@ -264,28 +276,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   };
 }
 
-/** A VK ID sign-in under way: what checks the browser's way back from VK ID, and the Invite it came with. */
-interface PendingVkSignIn {
-  state: string;
-  codeVerifier: string;
-  invite: string | null;
-}
-
-function pendingVkSignIn(cookie: string | undefined): PendingVkSignIn | null {
-  try {
-    const pending = JSON.parse(cookie ?? "") as Partial<PendingVkSignIn>;
-    if (typeof pending.state !== "string" || typeof pending.codeVerifier !== "string") return null;
-    const invite = typeof pending.invite === "string" ? pending.invite : null;
-    return { state: pending.state, codeVerifier: pending.codeVerifier, invite };
-  } catch {
-    return null;
-  }
-}
-
-/** The app's screen saying why signing in didn't work. */
-function signInProblemPath(problem: SignInProblem): string {
-  return `/#/sign-in/${problem}`;
-}
+/** A user's id, as the server makes them. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function idOf(item: unknown): string | null {
   const id = (item as { id?: unknown } | null)?.id;

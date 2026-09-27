@@ -111,14 +111,28 @@ export interface InviteCheck {
 }
 
 /**
- * Why the server refused to sign someone in: nobody knows them and they came without an
- * Invite, or the Invite they came with can't give an account: it is used up or was never made.
+ * Why the server refused to create an account, sign someone in or set a new password: the
+ * Invite is used up or was never made; the login is someone else's; the login and password
+ * don't match (an unknown login says the same, so logins can't be guessed); too many wrong
+ * passwords for the login lately; the link for a new password is used, expired or never made.
  */
-export type SignInRefusal = "noInvite" | "inviteUnusable";
+export type SignInRefusal = "inviteUnusable" | "loginTaken" | "wrongPassword" | "tooManyAttempts" | "resetUnusable";
 
-/**
- * Why signing in didn't work, as the app's sign-in screen says it: refused by the rules of
- * Invites, failed on the way through VK ID, or VK ID isn't set up on this server.
- */
-export const SIGN_IN_PROBLEMS = ["noInvite", "inviteUnusable", "failed", "unavailable"] as const;
-export type SignInProblem = (typeof SIGN_IN_PROBLEMS)[number];
+/** An account as the owner sees it, in the list where they create links for new passwords. */
+export interface AccountSummary {
+  userId: string;
+  login: string;
+  owner: boolean;
+  /** False for an account from before passwords, until a link from the owner sets one. */
+  hasPassword: boolean;
+}
+
+/** A new link for a new password the owner created: the token that goes into it. */
+export interface PasswordResetAnswer {
+  reset: string;
+}
+
+/** Whose password a link sets, or null when the link is used, expired or was never made. */
+export interface PasswordResetCheck {
+  login: string | null;
+}

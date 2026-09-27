@@ -35,6 +35,31 @@ export function exerciseNameKey(name: string): string {
   return name.trim().replace(/\s+/g, " ").toLocaleLowerCase("ru");
 }
 
+/** The longest login; any characters, spaces inside included. */
+export const LOGIN_MAX_LENGTH = 40;
+/** The shortest password; no other rules (ADR 0007). */
+export const PASSWORD_MIN_LENGTH = 8;
+/** The longest password, so hashing one can't be made to take long. */
+export const PASSWORD_MAX_LENGTH = 200;
+
+/** Logins match ignoring case and extra spaces, like Exercise names. */
+export function loginKey(login: string): string {
+  return exerciseNameKey(login);
+}
+
+/** A login is some text, not blank, up to LOGIN_MAX_LENGTH characters once trimmed. */
+export function checkLogin(login: unknown): asserts login is string {
+  must(typeof login === "string" && login.trim() !== "", "A login is needed");
+  must(login.trim().length <= LOGIN_MAX_LENGTH, `A login is at most ${LOGIN_MAX_LENGTH} characters`);
+}
+
+/** A password is at least PASSWORD_MIN_LENGTH characters, and at most PASSWORD_MAX_LENGTH. */
+export function checkPassword(password: unknown): asserts password is string {
+  must(typeof password === "string", "A password is needed");
+  must(password.length >= PASSWORD_MIN_LENGTH, `A password is at least ${PASSWORD_MIN_LENGTH} characters`);
+  must(password.length <= PASSWORD_MAX_LENGTH, `A password is at most ${PASSWORD_MAX_LENGTH} characters`);
+}
+
 /** An id generated on a device: a UUID. */
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

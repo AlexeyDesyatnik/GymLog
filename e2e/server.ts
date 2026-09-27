@@ -7,9 +7,9 @@ import { POSTGRES_IMAGE } from "../packages/server/src/testing/postgres.ts";
 export const E2E_SERVER_PORT = 4176;
 
 /**
- * Starts a clean PostgreSQL and the real server on it, with the test sign-in, for the whole
- * run, and makes the owner's first Invite as the server command does, for the tests' owner
- * (see signIn.ts); returns what stops them.
+ * Starts a clean PostgreSQL and the real server on it for the whole run, and makes the owner's
+ * first Invite as the server command does, for the tests' owner (see signIn.ts); returns what
+ * stops them.
  */
 export default async function startServer(): Promise<() => Promise<void>> {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
@@ -18,7 +18,6 @@ export default async function startServer(): Promise<() => Promise<void>> {
       ...process.env,
       DATABASE_URL: container.getConnectionUri(),
       NODE_ENV: "development",
-      GYMLOG_TEST_SIGN_IN: "1",
       SERVER_PORT: String(E2E_SERVER_PORT),
     },
     stdio: ["ignore", "pipe", "inherit"],

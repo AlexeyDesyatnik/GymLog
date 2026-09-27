@@ -1,14 +1,22 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
-import { checkSyncRecord, exerciseNameKey, type SignInRefusal } from "@gymlog/shared";
-import { identities, invites, records, users } from "./db/schema.ts";
+import { checkSyncRecord, exerciseNameKey, loginKey, type AccountSummary, type SignInRefusal } from "@gymlog/shared";
+import { invites, logins, passwordResets, records, sessions, signInAttempts, users } from "./db/schema.ts";
+import { hashPassword, NO_PASSWORD, passwordMatches } from "./passwords.ts";
 import { STARTER_LIST } from "./starter-list.ts";
 
 export type Database = NodePgDatabase;
+
+/** Wrong passwords in a row after which a login can't sign in for a while. */
+const MAX_FAILURES = 5;
+/** How long a login is held up after MAX_FAILURES wrong passwords. */
+const LOCK_MINUTES = 15;
+/** How long a link for a new password works, so a friend has time to open it. */
+const RESET_DAYS = 7;
 
 /** Connects to the database and brings its schema up to date. */
 export async function openDatabase(databaseUrl: string): Promise<{ db: Database; close(): Promise<void> }> {
@@ -18,40 +26,30 @@ export async function openDatabase(databaseUrl: string): Promise<{ db: Database;
   return { db, close: () => pool.end() };
 }
 
-/** Someone as a sign-in provider knows them: VK ID and the VK user id, or the test sign-in and a name. */
-export interface Identity {
-  provider: "vk" | "test";
-  subject: string;
-}
-
 /**
- * Signs in whoever the provider vouched for. A known identity is its user's, and needs no
- * Invite. An unknown one gets an account only through a valid, unused Invite, which that uses
- * up, and the account's Exercise catalog starts from the Starter list; without one it is refused.
+ * Creates an account through a valid, unused Invite, with the login and password chosen, and
+ * uses the Invite up; the account's Exercise catalog starts from the Starter list. The login
+ * and password are checked by the caller.
  */
-export async function signIn(
+export async function signUp(
   db: Database,
-  identity: Identity,
-  inviteToken: string | null,
+  { invite: inviteToken, login, password }: { invite: string; login: string; password: string },
 ): Promise<{ userId: string } | { refusal: SignInRefusal }> {
+  // Slow on purpose, so outside the transaction.
+  const passwordHash = await hashPassword(password);
+  const key = loginKey(login);
   return db.transaction(async (tx) => {
-    // Serialised per identity, so two first sign-ins at once make one user.
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`${identity.provider}:${identity.subject}`}, 0))`,
-    );
-    const [known] = await tx
-      .select()
-      .from(identities)
-      .where(and(eq(identities.provider, identity.provider), eq(identities.subject, identity.subject)));
-    if (known) return { userId: known.userId };
-    if (!inviteToken) return { refusal: "noInvite" };
+    // Serialised per login, so two people choosing one login at once can't both have it.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`login:${key}`}, 0))`);
     // Locked, so two people opening one Invite at once can't both get an account through it.
     const [invite] = await tx.select().from(invites).where(eq(invites.tokenHash, hashOf(inviteToken))).for("update");
     if (!invite || invite.usedBy) return { refusal: "inviteUnusable" };
     // GymLog has one owner; an owner's Invite left over once there is one gives nobody an account.
     if (invite.makesOwner && (await hasOwner(tx))) return { refusal: "inviteUnusable" };
+    const [taken] = await tx.select().from(logins).where(eq(logins.loginKey, key));
+    if (taken) return { refusal: "loginTaken" };
     const [user] = await tx.insert(users).values({ owner: invite.makesOwner }).returning();
-    await tx.insert(identities).values({ ...identity, userId: user!.id });
+    await tx.insert(logins).values({ userId: user!.id, login: login.trim(), loginKey: key, passwordHash });
     await tx
       .update(invites)
       .set({ usedBy: user!.id, usedAt: sql`now()` })
@@ -60,6 +58,40 @@ export async function signIn(
     await tx.insert(records).values(starterExercises(user!.id));
     return { userId: user!.id };
   });
+}
+
+/**
+ * Signs in with a login and a password. An unknown login is refused just like a wrong
+ * password, and takes as long. After MAX_FAILURES wrong passwords the login is held up for a
+ * while, right password or not.
+ */
+export async function signIn(
+  db: Database,
+  { login, password }: { login: string; password: string },
+): Promise<{ userId: string } | { refusal: SignInRefusal }> {
+  const key = loginKey(login);
+  const [attempts] = await db
+    .select()
+    .from(signInAttempts)
+    .where(and(eq(signInAttempts.loginKey, key), gt(signInAttempts.lockedUntil, sql`now()`)));
+  if (attempts) return { refusal: "tooManyAttempts" };
+  const [known] = await db.select().from(logins).where(eq(logins.loginKey, key));
+  if (await passwordMatches(password, known?.passwordHash ?? NO_PASSWORD)) {
+    await db.delete(signInAttempts).where(eq(signInAttempts.loginKey, key));
+    return { userId: known!.userId };
+  }
+  const [failed] = await db
+    .insert(signInAttempts)
+    .values({ loginKey: key, failures: 1 })
+    .onConflictDoUpdate({ target: signInAttempts.loginKey, set: { failures: sql`${signInAttempts.failures} + 1` } })
+    .returning();
+  if (failed!.failures >= MAX_FAILURES) {
+    await db
+      .update(signInAttempts)
+      .set({ failures: 0, lockedUntil: sql`now() + make_interval(mins => ${LOCK_MINUTES})` })
+      .where(eq(signInAttempts.loginKey, key));
+  }
+  return { refusal: "wrongPassword" };
 }
 
 /** The Starter list as the Exercise records of a new user's catalog, in rows of the records table. */
@@ -92,8 +124,8 @@ export async function inviteUsable(db: Database, token: string): Promise<boolean
 }
 
 /**
- * The owner's own first Invite, for the server command that sets GymLog up: whoever signs in
- * through it becomes the owner. Returns its token, which goes into the Invite's link.
+ * The owner's own first Invite, for the server command that sets GymLog up: whoever creates an
+ * account through it becomes the owner. Returns its token, which goes into the Invite's link.
  */
 export async function createOwnerInvite(db: Database): Promise<string> {
   if (await hasOwner(db)) throw new Error("GymLog already has an owner, who creates Invites in the app");
@@ -108,6 +140,87 @@ async function insertInvite(db: Database, invite: { createdBy?: string; makesOwn
 
 async function hasOwner(db: Pick<Database, "select">): Promise<boolean> {
   return (await db.select({ id: users.id }).from(users).where(eq(users.owner, true)).limit(1)).length > 0;
+}
+
+/** Every account that signs in with a login, by login, for the owner. */
+export async function listAccounts(db: Database): Promise<AccountSummary[]> {
+  return db
+    .select({
+      userId: users.id,
+      login: logins.login,
+      owner: users.owner,
+      hasPassword: sql<boolean>`${logins.passwordHash} is not null`,
+    })
+    .from(users)
+    .innerJoin(logins, eq(logins.userId, users.id))
+    .orderBy(asc(logins.loginKey));
+}
+
+/**
+ * A new one-time link for this user to set a new password, as the owner gives one; returns its
+ * token, or null when no account with a login has this id.
+ */
+export async function createPasswordReset(db: Database, userId: string): Promise<string | null> {
+  const [account] = await db.select().from(logins).where(eq(logins.userId, userId));
+  if (!account) return null;
+  const token = newToken();
+  await db.insert(passwordResets).values({
+    tokenHash: hashOf(token),
+    userId,
+    expiresAt: sql`now() + make_interval(days => ${RESET_DAYS})`,
+  });
+  return token;
+}
+
+/** A link for the owner's own new password, for the server command, when the owner forgot it. */
+export async function createOwnerPasswordReset(db: Database): Promise<string> {
+  const [owner] = await db.select({ id: users.id }).from(users).where(eq(users.owner, true)).limit(1);
+  const token = owner && (await createPasswordReset(db, owner.id));
+  if (!token) throw new Error("GymLog has no owner yet; the owner's Invite creates one");
+  return token;
+}
+
+/** The login whose password this link sets, or null when the link is used, expired or was never made. */
+export async function passwordResetLogin(db: Database, token: string): Promise<string | null> {
+  const [reset] = await db
+    .select({ login: logins.login })
+    .from(passwordResets)
+    .innerJoin(logins, eq(logins.userId, passwordResets.userId))
+    .where(usableReset(token));
+  return reset?.login ?? null;
+}
+
+/**
+ * Sets a new password through a link from the owner, which that uses up. The user's sessions
+ * all end, so a device someone else may hold is signed out; the password is checked by the caller.
+ */
+export async function resetPassword(
+  db: Database,
+  { reset: token, password }: { reset: string; password: string },
+): Promise<{ userId: string } | { refusal: SignInRefusal }> {
+  const passwordHash = await hashPassword(password);
+  return db.transaction(async (tx) => {
+    const [reset] = await tx.select().from(passwordResets).where(usableReset(token)).for("update");
+    if (!reset) return { refusal: "resetUnusable" };
+    const [account] = await tx
+      .update(logins)
+      .set({ passwordHash })
+      .where(eq(logins.userId, reset.userId))
+      .returning();
+    await tx.update(passwordResets).set({ usedAt: sql`now()` }).where(eq(passwordResets.tokenHash, reset.tokenHash));
+    await tx.delete(sessions).where(eq(sessions.userId, reset.userId));
+    // Whoever was guessing the old password is no reason to keep the new one out.
+    await tx.delete(signInAttempts).where(eq(signInAttempts.loginKey, account!.loginKey));
+    return { userId: reset.userId };
+  });
+}
+
+function usableReset(token: string) {
+  return and(
+    eq(passwordResets.tokenHash, hashOf(token)),
+    isNull(passwordResets.usedAt),
+    gt(passwordResets.expiresAt, sql`now()`),
+  );
 }
 
 /** A secret for a cookie or a link: long and random enough that nobody can guess it. */

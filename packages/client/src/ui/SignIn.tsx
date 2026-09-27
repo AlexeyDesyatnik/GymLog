@@ -1,151 +1,292 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { SignInProblem } from "@gymlog/shared";
+import { LOGIN_MAX_LENGTH, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, type SignInRefusal } from "@gymlog/shared";
 import type { Journal } from "../journal/journal.ts";
-import { SignInRefused } from "../sync/sync.ts";
+import { SignInRefused } from "../sync/api.ts";
 import { workoutsHref } from "./useRoute.ts";
 
-/** What the sign-in screen says when the server sent the browser back without signing it in. */
-const PROBLEM_TEXT: Record<SignInProblem, string> = {
-  noInvite:
-    "Этот аккаунт VK ещё не зарегистрирован в GymLog. Аккаунт создаётся только по приглашению — попросите ссылку у владельца.",
-  inviteUnusable:
-    "Это приглашение уже использовано или недействительно. Если у вас уже есть аккаунт, войдите без него.",
-  failed: "Не удалось войти через VK ID. Попробуйте ещё раз.",
-  unavailable: "Вход через VK ID на этом сервере не настроен.",
+/** What each refusal from the server says. */
+const REFUSAL_TEXT: Record<SignInRefusal, string> = {
+  inviteUnusable: "Это приглашение уже использовано или недействительно. Если у вас уже есть аккаунт, войдите.",
+  loginTaken: "Этот логин уже занят, выберите другой.",
+  wrongPassword: "Неверный логин или пароль.",
+  tooManyAttempts: "Слишком много неверных паролей подряд. Попробуйте через 15 минут.",
+  resetUnusable: "Эта ссылка для нового пароля уже использована или устарела. Попросите у владельца новую.",
 };
 
-/**
- * Signing in: on the first launch, before anything is recorded; through an Invite opened from
- * its link; or after the server said why signing in didn't work.
- */
-export function SignInScreen({
-  journal,
-  invite,
-  problem,
-  firstLaunch,
-}: {
-  journal: Journal;
-  invite?: string;
-  problem?: SignInProblem;
-  /** Nobody has signed in on this device yet, so there are no Workouts to go back to. */
-  firstLaunch: boolean;
-}) {
-  const inviteUsable = useInviteUsable(journal, invite);
-  // A used Invite can't help; someone with an account signs in without it.
-  const signInInvite = inviteUsable === false ? undefined : invite;
-  const shownProblem = problem ?? (inviteUsable === false ? "inviteUnusable" : undefined);
-
+/** On the first launch, before anything is recorded: signing in with a login and a password. */
+export function SignInScreen({ journal }: { journal: Journal }) {
   return (
     <main className="page">
-      {!firstLaunch && (
-        <a className="back" href={workoutsHref}>
-          ← Тренировки
-        </a>
-      )}
       <h1>GymLog</h1>
-      {shownProblem ? (
-        <p className="sign-in-problem" role="alert">
-          {PROBLEM_TEXT[shownProblem]}
-        </p>
-      ) : invite !== undefined ? (
-        <p className="sign-in-text">
-          Вас пригласили в GymLog. Войдите через VK ID — аккаунт создастся при первом входе.
-        </p>
-      ) : (
-        <p className="sign-in-text">
-          Войдите, чтобы начать. Тренировки хранятся на этом устройстве и синхронизируются с другими вашими
-          устройствами. Аккаунт создаётся только по приглашению.
-        </p>
-      )}
-      <SignInButtons
-        journal={journal}
-        invite={signInInvite}
-        // Once in, the list of Workouts; the Invite's link has done its job.
-        onSignedIn={() => (window.location.hash = workoutsHref)}
-      />
+      <p className="sign-in-text">
+        Войдите, чтобы начать. Тренировки хранятся на этом устройстве и синхронизируются с другими вашими
+        устройствами. Аккаунт создаётся только по приглашению владельца.
+      </p>
+      <SignInForm journal={journal} />
     </main>
   );
 }
 
-/** Whether the Invite can still give someone an account; null until known, or when it can't be checked. */
-function useInviteUsable(journal: Journal, invite: string | undefined): boolean | null {
-  const [usable, setUsable] = useState<{ invite: string; usable: boolean } | null>(null);
+/** Signing in with a login and a password: on the first launch, and when the session on this device has ended. */
+export function SignInForm({ journal }: { journal: Journal }) {
+  const [login, setLogin] = useState("");
+  const [password, setPassword] = useState("");
+  const { busy, error, attempt } = useAttempt();
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    void attempt(() => journal.account.signIn(login, password));
+  }
+
+  return (
+    <form className="sign-in" onSubmit={submit}>
+      <LoginField value={login} onChange={setLogin} autoComplete="username" />
+      <PasswordField label="Пароль" value={password} onChange={setPassword} autoComplete="current-password" />
+      <button className="button primary" type="submit" disabled={busy || !login.trim() || !password}>
+        Войти
+      </button>
+      <AttemptError error={error} />
+    </form>
+  );
+}
+
+/** Creating an account through an Invite opened from its link: the person chooses a login and a password. */
+export function SignUpScreen({
+  journal,
+  invite,
+  firstLaunch,
+}: {
+  journal: Journal;
+  invite: string;
+  firstLaunch: boolean;
+}) {
+  const usable = useChecked(journal, invite, (token) => journal.account.inviteUsable(token));
+  const [login, setLogin] = useState("");
+  const [password, setPassword] = useState("");
+  const { busy, error, attempt } = useAttempt();
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    // Once in, the list of Workouts; the Invite's link has done its job.
+    if (await attempt(() => journal.account.signUp(invite, login, password))) window.location.hash = workoutsHref;
+  }
+
+  return (
+    <main className="page">
+      {!firstLaunch && <BackToWorkouts />}
+      <h1>GymLog</h1>
+      {usable === false ? (
+        <>
+          <p className="sign-in-problem" role="alert">
+            {REFUSAL_TEXT.inviteUnusable}
+          </p>
+          {/* Where a device nobody has signed in on shows the sign-in form. */}
+          {firstLaunch && (
+            <a className="button primary button-link" href={workoutsHref}>
+              Войти
+            </a>
+          )}
+        </>
+      ) : (
+        <form className="sign-in" onSubmit={(event) => void submit(event)}>
+          <p className="sign-in-text">
+            Вас пригласили в GymLog. Придумайте логин и пароль — по ним вы будете входить на любом устройстве.
+          </p>
+          <LoginField value={login} onChange={setLogin} autoComplete="username" />
+          <NewPasswordField value={password} onChange={setPassword} />
+          <button
+            className="button primary"
+            type="submit"
+            disabled={busy || !login.trim() || password.length < PASSWORD_MIN_LENGTH}
+          >
+            Создать аккаунт
+          </button>
+          <AttemptError error={error} />
+        </form>
+      )}
+    </main>
+  );
+}
+
+/** Setting a new password through the owner's link, for a user who forgot theirs. */
+export function PasswordResetScreen({
+  journal,
+  reset,
+  firstLaunch,
+}: {
+  journal: Journal;
+  reset: string;
+  firstLaunch: boolean;
+}) {
+  const login = useChecked(journal, reset, (token) => journal.account.passwordResetLogin(token));
+  const [password, setPassword] = useState("");
+  const { busy, error, attempt } = useAttempt();
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (await attempt(() => journal.account.resetPassword(reset, password))) window.location.hash = workoutsHref;
+  }
+
+  return (
+    <main className="page">
+      {!firstLaunch && <BackToWorkouts />}
+      <h1>Новый пароль</h1>
+      {login === null ? (
+        <p className="sign-in-problem" role="alert">
+          {REFUSAL_TEXT.resetUnusable}
+        </p>
+      ) : (
+        <form className="sign-in" onSubmit={(event) => void submit(event)}>
+          {login !== undefined && <p className="sign-in-text">Логин: {login}</p>}
+          <NewPasswordField value={password} onChange={setPassword} />
+          <button
+            className="button primary"
+            type="submit"
+            disabled={busy || password.length < PASSWORD_MIN_LENGTH}
+          >
+            Сохранить пароль
+          </button>
+          <AttemptError error={error} />
+        </form>
+      )}
+    </main>
+  );
+}
+
+function BackToWorkouts() {
+  return (
+    <a className="back" href={workoutsHref}>
+      ← Тренировки
+    </a>
+  );
+}
+
+function LoginField({
+  value,
+  onChange,
+  autoComplete,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  autoComplete: string;
+}) {
+  return (
+    <label className="field">
+      <span className="field-label">Логин</span>
+      <input
+        className="text-input"
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        maxLength={LOGIN_MAX_LENGTH}
+        autoComplete={autoComplete}
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+      />
+    </label>
+  );
+}
+
+function NewPasswordField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <PasswordField
+      label="Пароль"
+      hint={`Не меньше ${PASSWORD_MIN_LENGTH} символов.`}
+      value={value}
+      onChange={onChange}
+      autoComplete="new-password"
+    />
+  );
+}
+
+/** A password, hidden as it is typed unless the user asks to see it, which helps on a phone keyboard. */
+function PasswordField({
+  label,
+  hint,
+  value,
+  onChange,
+  autoComplete,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  onChange: (value: string) => void;
+  autoComplete: string;
+}) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="password-field">
+      <label className="field">
+        <span className="field-label">{label}</span>
+        <input
+          className="text-input"
+          type={shown ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          maxLength={PASSWORD_MAX_LENGTH}
+          autoComplete={autoComplete}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+        />
+      </label>
+      <div className="password-extra">
+        {hint !== undefined && <span className="hint">{hint}</span>}
+        <button className="button quiet" type="button" onClick={() => setShown(!shown)}>
+          {shown ? "Скрыть пароль" : "Показать пароль"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AttemptError({ error }: { error: string | null }) {
+  if (error === null) return null;
+  return (
+    <p className="sign-in-problem" role="alert">
+      {error}
+    </p>
+  );
+}
+
+/** An attempt at the server, with whether it is under way and what went wrong with the last one. */
+function useAttempt() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  /** Resolves with whether it worked; a failure is kept to be shown, never thrown. */
+  async function attempt(action: () => Promise<void>): Promise<boolean> {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+      return true;
+    } catch (failure) {
+      setError(failure instanceof SignInRefused ? REFUSAL_TEXT[failure.refusal] : `Не удалось: ${String(failure)}`);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return { busy, error, attempt };
+}
+
+/** What the server says about a link's token; undefined until it answers, or when it can't be asked. */
+function useChecked<T>(journal: Journal, token: string, check: (token: string) => Promise<T>): T | undefined {
+  const [checked, setChecked] = useState<{ token: string; value: T } | null>(null);
   useEffect(() => {
-    if (invite === undefined) return;
     let current = true;
-    journal.sync.inviteUsable(invite).then(
-      (answer) => current && setUsable({ invite, usable: answer }),
-      // Offline, say, the sign-in itself will tell.
+    check(token).then(
+      (value) => current && setChecked({ token, value }),
+      // Offline, say, the form itself will tell.
       () => {},
     );
     return () => {
       current = false;
     };
-  }, [journal, invite]);
-  return usable !== null && usable.invite === invite ? usable.usable : null;
-}
-
-/**
- * The way to sign in, through the Invite if given: VK ID, and in development also the test
- * sign-in by name, so two browsers can act as one user or as two.
- */
-export function SignInButtons({
-  journal,
-  invite,
-  onSignedIn,
-}: {
-  journal: Journal;
-  invite?: string;
-  onSignedIn?: () => void;
-}) {
-  return (
-    <div className="sign-in">
-      {/* A plain link: the browser leaves for VK ID and comes back to the app. */}
-      <a className="button primary button-link" href={journal.sync.vkSignInUrl(invite)}>
-        Войти через VK ID
-      </a>
-      {import.meta.env.DEV && <TestSignIn journal={journal} invite={invite} onSignedIn={onSignedIn} />}
-    </div>
-  );
-}
-
-function TestSignIn({ journal, invite, onSignedIn }: { journal: Journal; invite?: string; onSignedIn?: () => void }) {
-  const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  async function signIn(event: FormEvent) {
-    event.preventDefault();
-    setError(null);
-    try {
-      await journal.sync.testSignIn(name.trim(), invite);
-      onSignedIn?.();
-    } catch (failure) {
-      setError(failure instanceof SignInRefused ? PROBLEM_TEXT[failure.refusal] : String(failure));
-    }
-  }
-
-  return (
-    <form className="create sync-sign-in" onSubmit={signIn}>
-      <label className="field">
-        <span className="field-label">Тестовый вход: имя пользователя</span>
-        <input
-          className="text-input"
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          autoComplete="off"
-          autoCapitalize="none"
-          spellCheck={false}
-        />
-      </label>
-      <button className="button" type="submit" disabled={!name.trim()}>
-        Войти
-      </button>
-      {error !== null && (
-        <p className="sync-status" role="alert">
-          Не удалось войти: {error}
-        </p>
-      )}
-    </form>
-  );
+    // The check is the same for the same Journal and token.
+  }, [journal, token]);
+  return checked !== null && checked.token === token ? checked.value : undefined;
 }

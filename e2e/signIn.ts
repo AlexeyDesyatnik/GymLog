@@ -1,16 +1,20 @@
 import { expect, request, type Page } from "@playwright/test";
 
+/** The run's owner, who creates the Invites of its tests. */
+const OWNER = { login: "the owner", password: "the owner's password" };
+
 /**
- * A fresh Invite from the run's owner, who signs in through the owner's first Invite from
- * the global setup the first time and is known after that.
+ * A fresh Invite from the run's owner, who creates an account through the owner's first Invite
+ * from the global setup the first time, and signs in after that.
  */
 async function inviteFromOwner(baseURL: string): Promise<string> {
   const owner = await request.newContext({ baseURL });
   try {
-    const signIn = await owner.post("/api/test-sign-in", {
-      data: { name: "the owner", invite: process.env.GYMLOG_E2E_OWNER_INVITE },
-    });
-    expect(signIn.ok()).toBe(true);
+    const signedIn = async () => (await owner.post("/api/sign-in", { data: OWNER })).ok();
+    const signedUp = async () =>
+      (await owner.post("/api/sign-up", { data: { ...OWNER, invite: process.env.GYMLOG_E2E_OWNER_INVITE } })).ok();
+    // A test running alongside may have just created the owner's account, and used the Invite up.
+    expect((await signedIn()) || (await signedUp()) || (await signedIn())).toBe(true);
     const created = await owner.post("/api/invites", { data: {} });
     expect(created.ok()).toBe(true);
     return ((await created.json()) as { invite: string }).invite;
@@ -19,29 +23,34 @@ async function inviteFromOwner(baseURL: string): Promise<string> {
   }
 }
 
-/** A name nobody in the run has signed in with: the server's database is shared by the run's tests. */
-export function newUserName(prefix: string): string {
+/** A login nobody in the run has taken: the server's database is shared by the run's tests. */
+export function newLogin(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** The password the tests give a login. */
+function passwordOf(login: string): string {
+  return `${login}'s password`;
+}
+
 /**
- * Opens the app on this page through a fresh Invite and signs in there with the test sign-in
- * as a new user of this name, then waits for the first sync.
+ * Opens a fresh Invite on this page and creates an account there with this login, then waits
+ * for the first sync.
  */
-export async function signUp(page: Page, baseURL: string, name: string) {
+export async function signUp(page: Page, baseURL: string, login: string) {
   await page.goto(`/#/invite/${await inviteFromOwner(baseURL)}`);
   await expect(page.getByText("Вас пригласили в GymLog.", { exact: false })).toBeVisible();
-  await signInOnScreen(page, name);
+  await page.getByLabel("Логин", { exact: true }).fill(login);
+  await page.getByLabel("Пароль", { exact: true }).fill(passwordOf(login));
+  await page.getByRole("button", { name: "Создать аккаунт" }).click();
+  await expect(page.getByText("Синхронизировано с другими устройствами.")).toBeVisible();
 }
 
-/** Opens the app on this page and signs in there with the test sign-in as this user, then waits for the first sync. */
-export async function signIn(page: Page, name: string) {
+/** Opens the app on this page and signs in there with this login and its password, then waits for the first sync. */
+export async function signIn(page: Page, login: string) {
   await page.goto("/");
-  await signInOnScreen(page, name);
-}
-
-async function signInOnScreen(page: Page, name: string) {
-  await page.getByLabel("Тестовый вход: имя пользователя").fill(name);
+  await page.getByLabel("Логин", { exact: true }).fill(login);
+  await page.getByLabel("Пароль", { exact: true }).fill(passwordOf(login));
   await page.getByRole("button", { name: "Войти", exact: true }).click();
   await expect(page.getByText("Синхронизировано с другими устройствами.")).toBeVisible();
 }
