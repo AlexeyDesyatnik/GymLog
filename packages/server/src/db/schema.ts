@@ -20,32 +20,32 @@ export const users = pgTable("users", {
 });
 
 /**
- * One-time links through which a new user gets an account. Only a hash of each Invite's token
+ * One-time links through which a new User comes to exist. Only a hash of each Invite's token
  * is kept, like a session's.
  */
 export const invites = pgTable("invites", {
   tokenHash: text("token_hash").primaryKey(),
   /** The owner who created it; null for the owner's own first Invite, made by the server command. */
   createdBy: uuid("created_by").references(() => users.id),
-  /** The account it creates is the owner's. */
+  /** The User it makes is the Owner. */
   makesOwner: boolean("makes_owner").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  /** The user whose account it created; null while it is unused. */
+  /** The User it made; null while it is unused. */
   usedBy: uuid("used_by").references(() => users.id),
   usedAt: timestamp("used_at", { withTimezone: true }),
 });
 
 /**
  * How a user signs in: a login and a password (ADR 0007). The password is kept only as a slow
- * hash; it is missing on accounts from before passwords, until the owner's link sets one.
+ * hash; it is missing on Users from before passwords, until a Reset link sets one.
  */
 export const logins = pgTable("logins", {
   userId: uuid("user_id")
     .primaryKey()
     .references(() => users.id),
-  /** As the user typed it, for the owner's list of accounts. */
+  /** As the User typed it, for the Owner's list of Users. */
   login: text("login").notNull(),
-  /** The login as it is matched, ignoring case and extra spaces; one per account. */
+  /** The Login as it is matched, ignoring case and extra spaces; one per User. */
   loginKey: text("login_key").notNull().unique(),
   passwordHash: text("password_hash"),
 });
@@ -64,7 +64,8 @@ export const signInAttempts = pgTable("sign_in_attempts", {
  * One-time links from the owner through which a user sets a new password. Only a hash of each
  * link's token is kept, like an Invite's.
  */
-export const passwordResets = pgTable("password_resets", {
+// The table's name is from before the glossary named Reset links; renaming it isn't worth a migration.
+export const resetLinks = pgTable("password_resets", {
   tokenHash: text("token_hash").primaryKey(),
   userId: uuid("user_id")
     .notNull()

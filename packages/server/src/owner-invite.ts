@@ -1,9 +1,8 @@
 /**
- * The one-off command that sets GymLog up: creates the owner's own first Invite and prints its
- * link. Whoever creates an account through it becomes the owner, who then creates Invites in
- * the app.
+ * The one-off command that sets GymLog up: creates the Owner's own first Invite and prints its
+ * link. Whoever becomes a User through it is the Owner, who then creates Invites in the app.
  */
-import { createOwnerInvite, openDatabase } from "./accounts.ts";
+import { createOwnerInvite, openDatabase } from "./users.ts";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is not set");

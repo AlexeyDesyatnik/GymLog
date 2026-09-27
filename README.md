@@ -12,8 +12,8 @@ Node.js 24, npm and Docker Desktop. Docker must be running for `npm run dev` (it
 npm install             # once, after cloning or pulling new dependencies
 npm run dev             # start the database, the server and the app for development
 npm run db              # start only the dev database (PostgreSQL in Docker)
-npm run owner-invite    # create the owner's first Invite in the dev database and print its link
-npm run owner-password  # print a link for the owner's new password, in the dev database
+npm run owner-invite    # create the Owner's first Invite in the dev database and print its link
+npm run owner-password  # print a Reset link for the Owner, in the dev database
 npm test                # run the test suite
 npm run test:e2e        # run the end-to-end flows in a phone-sized Chromium
 npm run typecheck       # check types
@@ -25,21 +25,21 @@ After changing the server's database schema (`packages/server/src/db/schema.ts`)
 
 ## Signing in for development
 
-On first launch the app asks to sign in, and accounts come only from an Invite (ADR 0007). To set up the owner's account, run
+On first launch the app asks to sign in, and Users come only from an Invite (ADR 0007). To set up the Owner, run
 
 ```bash
 npm run owner-invite
 ```
 
-and open the link it prints: whoever chooses a login and a password there becomes the owner. The owner then creates Invites for others at the bottom of the list of Workouts («Создать приглашение»). Each Invite gives one account; a user with an account signs in with the login and password on any device.
+and open the link it prints: whoever chooses a Login and a password there becomes the Owner. The Owner then creates Invites for others at the bottom of the list of Workouts («Создать приглашение»). Each Invite makes one User, who then signs in with the Login and password on any device.
 
-There is no email. When someone forgets their password, the owner opens «Аккаунты и пароли» and sends them a link for a new one. An owner who forgot their own runs
+There is no email. When someone forgets their password, the Owner opens «Аккаунты и пароли» and sends them a Reset link. An Owner who forgot their own runs
 
 ```bash
 npm run owner-password
 ```
 
-and opens the link it prints. Accounts from before passwords (dev databases from #14) keep their old name as the login and have no password until such a link sets one.
+and opens the link it prints. Users from before passwords (dev databases from #14) keep their old name as the Login and have no password until a Reset link sets one.
 
 ## Opening the app from a phone
 

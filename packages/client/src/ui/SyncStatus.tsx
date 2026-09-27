@@ -5,7 +5,7 @@ import { SignInForm } from "./SignIn.tsx";
 
 /**
  * Whether this device's records reach the user's other devices, the way to sign in again, and
- * the owner's Invites and links for new passwords.
+ * the Owner's Invites and Reset links.
  */
 export function SyncStatus({ journal }: { journal: Journal }) {
   const state = useSyncExternalStore(journal.sync.onStateChange, journal.sync.state);

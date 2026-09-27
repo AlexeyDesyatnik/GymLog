@@ -105,34 +105,34 @@ export interface InviteAnswer {
   invite: string;
 }
 
-/** Whether an Invite can still give someone an account: it was made and nobody has used it. */
+/** Whether an Invite can still make a User: it was made and nobody has used it. */
 export interface InviteCheck {
   usable: boolean;
 }
 
 /**
- * Why the server refused to create an account, sign someone in or set a new password: the
+ * Why the server refused to make a User, sign someone in or set a new password: the
  * Invite is used up or was never made; the login is someone else's; the login and password
  * don't match (an unknown login says the same, so logins can't be guessed); too many wrong
- * passwords for the login lately; the link for a new password is used, expired or never made.
+ * passwords for the Login lately; the Reset link is used, expired or never made.
  */
-export type SignInRefusal = "inviteUnusable" | "loginTaken" | "wrongPassword" | "tooManyAttempts" | "resetUnusable";
+export type SignInRefusal = "inviteUnusable" | "loginTaken" | "wrongPassword" | "tooManyAttempts" | "resetLinkUnusable";
 
-/** An account as the owner sees it, in the list where they create links for new passwords. */
-export interface AccountSummary {
+/** A User as the Owner sees them, in the list where the Owner creates Reset links. */
+export interface UserSummary {
   userId: string;
   login: string;
   owner: boolean;
-  /** False for an account from before passwords, until a link from the owner sets one. */
+  /** False for a User from before passwords, until a Reset link sets one. */
   hasPassword: boolean;
 }
 
-/** A new link for a new password the owner created: the token that goes into it. */
-export interface PasswordResetAnswer {
-  reset: string;
+/** A new Reset link the Owner created: the token that goes into it. */
+export interface ResetLinkAnswer {
+  resetLink: string;
 }
 
-/** Whose password a link sets, or null when the link is used, expired or was never made. */
-export interface PasswordResetCheck {
+/** Whose password a Reset link sets, or null when it is used, expired or was never made. */
+export interface ResetLinkCheck {
   login: string | null;
 }

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
-import { createOwnerInvite, openDatabase } from "../packages/server/src/accounts.ts";
+import { createOwnerInvite, openDatabase } from "../packages/server/src/users.ts";
 import { POSTGRES_IMAGE } from "../packages/server/src/testing/postgres.ts";
 
 /** Where the end-to-end run's server listens; the app's dev server passes /api on to it. */

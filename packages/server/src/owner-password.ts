@@ -1,8 +1,8 @@
 /**
- * The command for an owner who forgot their password: creates a one-time link through which
- * the owner sets a new one, and prints it. Other users get such links from the owner in the app.
+ * The command for an Owner who forgot their password: creates a Reset link for the Owner and
+ * prints it. Other Users get Reset links from the Owner in the app.
  */
-import { createOwnerPasswordReset, openDatabase } from "./accounts.ts";
+import { createOwnerResetLink, openDatabase } from "./users.ts";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is not set");
@@ -12,9 +12,9 @@ if (!appUrl) throw new Error("APP_URL is not set");
 
 const database = await openDatabase(databaseUrl);
 try {
-  const reset = await createOwnerPasswordReset(database.db);
-  const link = new URL(`/#/reset/${reset}`, appUrl).href;
-  console.log(`The owner's link for a new password; open it and set one:\n${link}`);
+  const resetLink = await createOwnerResetLink(database.db);
+  const link = new URL(`/#/reset/${resetLink}`, appUrl).href;
+  console.log(`The Owner's Reset link; open it and set a new password:\n${link}`);
 } finally {
   await database.close();
 }

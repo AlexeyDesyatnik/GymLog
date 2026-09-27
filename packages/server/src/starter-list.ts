@@ -1,6 +1,6 @@
 /**
  * The Starter list: common Exercises, each an English Primary name and a Russian Alternative
- * name, copied into a new user's Exercise catalog once, when the account is created. Changing
+ * name, copied into a new User's Exercise catalog once, when the User comes to exist. Changing
  * it later doesn't touch catalogs already made. No two names here may match ignoring case,
  * since a name belongs to one Exercise.
  */

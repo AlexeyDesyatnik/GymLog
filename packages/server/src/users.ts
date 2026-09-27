@@ -9,10 +9,10 @@ import {
   exerciseNameKey,
   loginKey,
   SIGN_IN_LOCK_MINUTES,
-  type AccountSummary,
+  type UserSummary,
   type SignInRefusal,
 } from "@gymlog/shared";
-import { invites, logins, passwordResets, records, sessions, signInAttempts, users } from "./db/schema.ts";
+import { invites, logins, resetLinks, records, sessions, signInAttempts, users } from "./db/schema.ts";
 import { hashPassword, NO_PASSWORD, passwordMatches } from "./passwords.ts";
 import { STARTER_LIST } from "./starter-list.ts";
 
@@ -25,7 +25,7 @@ export type SignInOutcome = { userId: string } | { refusal: SignInRefusal };
 const MAX_FAILURES = 5;
 /** Attempts for a login quiet for a day are forgotten, so the table doesn't keep every login ever tried. */
 const FORGET_ATTEMPTS_DAYS = 1;
-/** How long a link for a new password works, so a friend has time to open it. */
+/** How long a Reset link works, so a friend has time to open it. */
 const RESET_DAYS = 7;
 
 /** Connects to the database and brings its schema up to date. */
@@ -37,8 +37,8 @@ export async function openDatabase(databaseUrl: string): Promise<{ db: Database;
 }
 
 /**
- * Creates an account through a valid, unused Invite, with the login and password chosen, and
- * uses the Invite up; the account's Exercise catalog starts from the Starter list. The login
+ * Makes a new User through a valid, unused Invite, with the Login and password chosen, and
+ * uses the Invite up; the User's Exercise catalog starts from the Starter list. The Login
  * and password are checked by the caller.
  */
 export async function signUp(
@@ -51,10 +51,10 @@ export async function signUp(
   return db.transaction(async (tx) => {
     // Serialised per login, so two people choosing one login at once can't both have it.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`login:${key}`}, 0))`);
-    // Locked, so two people opening one Invite at once can't both get an account through it.
+    // Locked, so two people opening one Invite at once can't both become Users through it.
     const [invite] = await tx.select().from(invites).where(eq(invites.tokenHash, hashOf(inviteToken))).for("update");
     if (!invite || invite.usedBy) return { refusal: "inviteUnusable" };
-    // GymLog has one owner; an owner's Invite left over once there is one gives nobody an account.
+    // GymLog has one Owner; an Owner's Invite left over once there is one makes nobody a User.
     if (invite.makesOwner && (await hasOwner(tx))) return { refusal: "inviteUnusable" };
     const [taken] = await tx.select().from(logins).where(eq(logins.loginKey, key));
     if (taken) return { refusal: "loginTaken" };
@@ -145,7 +145,7 @@ export async function createInvite(db: Database, ownerId: string): Promise<strin
   return insertInvite(db, { createdBy: ownerId });
 }
 
-/** Whether an Invite can still give someone an account: it was made and nobody has used it. */
+/** Whether an Invite can still make a User: it was made and nobody has used it. */
 export async function inviteUsable(db: Database, token: string): Promise<boolean> {
   const [invite] = await db.select().from(invites).where(eq(invites.tokenHash, hashOf(token)));
   return invite !== undefined && invite.usedBy === null;
@@ -153,7 +153,7 @@ export async function inviteUsable(db: Database, token: string): Promise<boolean
 
 /**
  * The owner's own first Invite, for the server command that sets GymLog up: whoever creates an
- * account through it becomes the owner. Returns its token, which goes into the Invite's link.
+ * User through it is the Owner. Returns its token, which goes into the Invite's link.
  */
 export async function createOwnerInvite(db: Database): Promise<string> {
   if (await hasOwner(db)) throw new Error("GymLog already has an owner, who creates Invites in the app");
@@ -170,8 +170,8 @@ async function hasOwner(db: Pick<Database, "select">): Promise<boolean> {
   return (await db.select({ id: users.id }).from(users).where(eq(users.owner, true)).limit(1)).length > 0;
 }
 
-/** Every account that signs in with a login, by login, for the owner. */
-export async function listAccounts(db: Database): Promise<AccountSummary[]> {
+/** Every User who signs in with a Login, by Login, for the Owner. */
+export async function listUsers(db: Database): Promise<UserSummary[]> {
   return db
     .select({
       userId: users.id,
@@ -186,13 +186,13 @@ export async function listAccounts(db: Database): Promise<AccountSummary[]> {
 
 /**
  * A new one-time link for this user to set a new password, as the owner gives one; returns its
- * token, or null when no account with a login has this id.
+ * token, or null when no User with a Login has this id.
  */
-export async function createPasswordReset(db: Database, userId: string): Promise<string | null> {
-  const [account] = await db.select().from(logins).where(eq(logins.userId, userId));
-  if (!account) return null;
+export async function createResetLink(db: Database, userId: string): Promise<string | null> {
+  const [user] = await db.select().from(logins).where(eq(logins.userId, userId));
+  if (!user) return null;
   const token = newToken();
-  await db.insert(passwordResets).values({
+  await db.insert(resetLinks).values({
     tokenHash: hashOf(token),
     userId,
     expiresAt: sql`now() + make_interval(days => ${RESET_DAYS})`,
@@ -201,57 +201,57 @@ export async function createPasswordReset(db: Database, userId: string): Promise
 }
 
 /** A link for the owner's own new password, for the server command, when the owner forgot it. */
-export async function createOwnerPasswordReset(db: Database): Promise<string> {
+export async function createOwnerResetLink(db: Database): Promise<string> {
   const [owner] = await db.select({ id: users.id }).from(users).where(eq(users.owner, true)).limit(1);
-  const token = owner && (await createPasswordReset(db, owner.id));
+  const token = owner && (await createResetLink(db, owner.id));
   if (!token) throw new Error("GymLog has no owner yet; the owner's Invite creates one");
   return token;
 }
 
 /** The login whose password this link sets, or null when the link is used, expired or was never made. */
-export async function passwordResetLogin(db: Database, token: string): Promise<string | null> {
-  const [reset] = await db
+export async function resetLinkLogin(db: Database, token: string): Promise<string | null> {
+  const [link] = await db
     .select({ login: logins.login })
-    .from(passwordResets)
-    .innerJoin(logins, eq(logins.userId, passwordResets.userId))
-    .where(usableReset(token));
-  return reset?.login ?? null;
+    .from(resetLinks)
+    .innerJoin(logins, eq(logins.userId, resetLinks.userId))
+    .where(usableResetLink(token));
+  return link?.login ?? null;
 }
 
 /**
  * Sets a new password through a link from the owner, which that uses up. The user's sessions
  * all end, so a device someone else may hold is signed out; the password is checked by the caller.
  */
-export async function resetPassword(
+export async function setNewPassword(
   db: Database,
-  { reset: token, password }: { reset: string; password: string },
+  { resetLink: token, password }: { resetLink: string; password: string },
 ): Promise<SignInOutcome> {
   const passwordHash = await hashPassword(password);
   return db.transaction(async (tx) => {
-    const [reset] = await tx.select().from(passwordResets).where(usableReset(token)).for("update");
-    if (!reset) return { refusal: "resetUnusable" };
-    const [account] = await tx
+    const [link] = await tx.select().from(resetLinks).where(usableResetLink(token)).for("update");
+    if (!link) return { refusal: "resetLinkUnusable" };
+    const [user] = await tx
       .update(logins)
       .set({ passwordHash })
-      .where(eq(logins.userId, reset.userId))
+      .where(eq(logins.userId, link.userId))
       .returning();
     // Every link for this user's password ends with it, not just the one used.
     await tx
-      .update(passwordResets)
+      .update(resetLinks)
       .set({ usedAt: sql`now()` })
-      .where(and(eq(passwordResets.userId, reset.userId), isNull(passwordResets.usedAt)));
-    await tx.delete(sessions).where(eq(sessions.userId, reset.userId));
+      .where(and(eq(resetLinks.userId, link.userId), isNull(resetLinks.usedAt)));
+    await tx.delete(sessions).where(eq(sessions.userId, link.userId));
     // Whoever was guessing the old password is no reason to keep the new one out.
-    await tx.delete(signInAttempts).where(eq(signInAttempts.loginKey, account!.loginKey));
-    return { userId: reset.userId };
+    await tx.delete(signInAttempts).where(eq(signInAttempts.loginKey, user!.loginKey));
+    return { userId: link.userId };
   });
 }
 
-function usableReset(token: string) {
+function usableResetLink(token: string) {
   return and(
-    eq(passwordResets.tokenHash, hashOf(token)),
-    isNull(passwordResets.usedAt),
-    gt(passwordResets.expiresAt, sql`now()`),
+    eq(resetLinks.tokenHash, hashOf(token)),
+    isNull(resetLinks.usedAt),
+    gt(resetLinks.expiresAt, sql`now()`),
   );
 }
 

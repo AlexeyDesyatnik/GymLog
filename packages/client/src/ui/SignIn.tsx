@@ -16,7 +16,7 @@ const REFUSAL_TEXT: Record<SignInRefusal, string> = {
   loginTaken: "Этот логин уже занят, выберите другой.",
   wrongPassword: "Неверный логин или пароль.",
   tooManyAttempts: `Слишком много неверных паролей подряд. Попробуйте через ${SIGN_IN_LOCK_MINUTES} минут.`,
-  resetUnusable: "Эта ссылка для нового пароля уже использована или устарела. Попросите у владельца новую.",
+  resetLinkUnusable: "Эта ссылка для нового пароля уже использована или устарела. Попросите у владельца новую.",
 };
 
 /** On the first launch, before anything is recorded: signing in with a login and a password. */
@@ -41,7 +41,7 @@ export function SignInForm({ journal }: { journal: Journal }) {
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    void attempt(() => journal.account.signIn(login, password));
+    void attempt(() => journal.access.signIn(login, password));
   }
 
   return (
@@ -56,7 +56,7 @@ export function SignInForm({ journal }: { journal: Journal }) {
   );
 }
 
-/** Creating an account through an Invite opened from its link: the person chooses a login and a password. */
+/** Using an Invite opened from its link: the person chooses a Login and a password and becomes a User. */
 export function SignUpScreen({
   journal,
   invite,
@@ -66,7 +66,7 @@ export function SignUpScreen({
   invite: string;
   firstLaunch: boolean;
 }) {
-  const usable = useChecked(journal, invite, (token) => journal.account.inviteUsable(token));
+  const usable = useChecked(journal, invite, (token) => journal.access.inviteUsable(token));
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const { busy, error, attempt } = useAttempt();
@@ -74,7 +74,7 @@ export function SignUpScreen({
   async function submit(event: FormEvent) {
     event.preventDefault();
     // Once in, the list of Workouts; the Invite's link has done its job.
-    if (await attempt(() => journal.account.signUp(invite, login, password))) window.location.hash = workoutsHref;
+    if (await attempt(() => journal.access.signUp(invite, login, password))) window.location.hash = workoutsHref;
   }
 
   return (
@@ -114,23 +114,23 @@ export function SignUpScreen({
   );
 }
 
-/** Setting a new password through the owner's link, for a user who forgot theirs. */
-export function PasswordResetScreen({
+/** Setting a new password through a Reset link, for a User who forgot theirs. */
+export function ResetLinkScreen({
   journal,
-  reset,
+  resetLink,
   firstLaunch,
 }: {
   journal: Journal;
-  reset: string;
+  resetLink: string;
   firstLaunch: boolean;
 }) {
-  const login = useChecked(journal, reset, (token) => journal.account.passwordResetLogin(token));
+  const login = useChecked(journal, resetLink, (token) => journal.access.resetLinkLogin(token));
   const [password, setPassword] = useState("");
   const { busy, error, attempt } = useAttempt();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (await attempt(() => journal.account.resetPassword(reset, password))) window.location.hash = workoutsHref;
+    if (await attempt(() => journal.access.setNewPassword(resetLink, password))) window.location.hash = workoutsHref;
   }
 
   return (
@@ -139,7 +139,7 @@ export function PasswordResetScreen({
       <h1>Новый пароль</h1>
       {login === null ? (
         <p className="sign-in-problem" role="alert">
-          {REFUSAL_TEXT.resetUnusable}
+          {REFUSAL_TEXT.resetLinkUnusable}
         </p>
       ) : (
         <form className="sign-in" onSubmit={(event) => void submit(event)}>

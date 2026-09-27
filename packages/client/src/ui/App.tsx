@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ChangeNotSaved, type Journal } from "../journal/journal.ts";
-import { PasswordResetScreen, SignInScreen, SignUpScreen } from "./SignIn.tsx";
+import { ResetLinkScreen, SignInScreen, SignUpScreen } from "./SignIn.tsx";
 import { StoreProblem, type StoreProblemState } from "./StoreProblem.tsx";
 import { useRoute } from "./useRoute.ts";
 import { useToday } from "./useToday.ts";
@@ -29,8 +29,8 @@ export function App({ journal }: { journal: Journal }) {
   if (route.screen === "signUp") {
     return <SignUpScreen journal={journal} invite={route.invite} firstLaunch={firstLaunch} />;
   }
-  if (route.screen === "passwordReset") {
-    return <PasswordResetScreen journal={journal} reset={route.reset} firstLaunch={firstLaunch} />;
+  if (route.screen === "resetLink") {
+    return <ResetLinkScreen journal={journal} resetLink={route.resetLink} firstLaunch={firstLaunch} />;
   }
   if (firstLaunch) return <SignInScreen journal={journal} />;
   return route.screen === "workout" ? (

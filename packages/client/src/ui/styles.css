@@ -886,7 +886,7 @@ a.workout-link:focus-visible {
   gap: 4px;
 }
 
-.accounts {
+.user-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -896,7 +896,7 @@ a.workout-link:focus-visible {
   gap: 8px;
 }
 
-.account {
+.user-card {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -907,14 +907,14 @@ a.workout-link:focus-visible {
   border-radius: 12px;
 }
 
-.account-head {
+.user-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
 
-.account-login {
+.user-login {
   font-weight: 600;
   overflow-wrap: anywhere;
 }

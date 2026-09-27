@@ -3,7 +3,7 @@ import pg from "pg";
 import type { PushAnswer, SyncRecord } from "@gymlog/shared";
 import { openJournal, type Journal } from "@gymlog/client/journal";
 import { uniqueJournalName } from "@gymlog/client/testing";
-import { createOwnerInvite, createOwnerPasswordReset, openDatabase } from "../accounts.ts";
+import { createOwnerInvite, createOwnerResetLink, openDatabase } from "../users.ts";
 import { startServer } from "../server.ts";
 
 /** The real server on a database of its own. */
@@ -16,9 +16,9 @@ export interface TestServer {
   device(store?: string): Device;
   /** The owner's own first Invite, as the server command that sets GymLog up gives it. */
   ownerInvite(): Promise<string>;
-  /** A link for the owner's own new password, as the server command gives it. */
-  ownerPasswordReset(): Promise<string>;
-  /** A fresh Invite from the test's owner, who gets an account of their own the first time. */
+  /** A Reset link for the Owner, as the server command gives it. */
+  ownerResetLink(): Promise<string>;
+  /** A fresh Invite from the test's Owner, who becomes a User the first time. */
   inviteFromOwner(): Promise<string>;
 }
 
@@ -28,8 +28,8 @@ export interface Device {
   /** Signs this device in with this login and its test password (see testPassword), or the password given. */
   signIn(login: string, password?: string): Promise<void>;
   /**
-   * Creates an account with this login and its test password, or the password given, through
-   * this Invite, or a fresh one from the test's owner, and signs this device in.
+   * Becomes a new User with this Login and its test password, or the password given, through
+   * this Invite, or a fresh one from the test's Owner, and signs this device in.
    */
   signUp(login: string, options?: { invite?: string; password?: string }): Promise<void>;
   /** Requests to the server as this device, carrying its session cookie. */
@@ -76,7 +76,7 @@ export async function startTestServer(): Promise<TestServer> {
       await ownersDevice.signUp("the owner", { invite: await ownerInvite() });
       return ownersDevice;
     })();
-    return (await owner).journal.account.createInvite();
+    return (await owner).journal.access.createInvite();
   }
 
   /** A browser with this local store, connection and clock, where the app has just opened. */
@@ -95,9 +95,9 @@ export async function startTestServer(): Promise<TestServer> {
     return {
       ...connection.control,
       journal,
-      signIn: (login, password = testPassword(login)) => journal.account.signIn(login, password),
+      signIn: (login, password = testPassword(login)) => journal.access.signIn(login, password),
       signUp: async (login, { invite, password = testPassword(login) } = {}) =>
-        journal.account.signUp(invite ?? (await inviteFromOwner()), login, password),
+        journal.access.signUp(invite ?? (await inviteFromOwner()), login, password),
       fetch: connection.fetch,
       setClock: clock.set,
       reopen: () => {
@@ -113,7 +113,7 @@ export async function startTestServer(): Promise<TestServer> {
       return openDevice(store, deviceConnection(), tickingClock());
     },
     ownerInvite,
-    ownerPasswordReset: () => createOwnerPasswordReset(database.db),
+    ownerResetLink: () => createOwnerResetLink(database.db),
     inviteFromOwner,
   };
 }

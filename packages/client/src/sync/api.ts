@@ -10,7 +10,7 @@ const TIMEOUT_MS = 20_000;
 /** The server refused the session: nobody is signed in on this device. */
 export class SignedOut extends Error {}
 
-/** The server wouldn't create the account, sign in or set the password; the refusal says why. */
+/** The server wouldn't make the User, sign in or set the password; the refusal says why. */
 export class SignInRefused extends Error {
   constructor(readonly refusal: SignInRefusal) {
     super(`Sign-in refused: ${refusal}`);

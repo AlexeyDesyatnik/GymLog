@@ -28,13 +28,13 @@ export {
 } from "./plan-notation.ts";
 export { RECORD_TYPES, replacesKept } from "./records.ts";
 export type {
-  AccountSummary,
+  UserSummary,
   EntryRecord,
   ExerciseRecord,
   InviteAnswer,
   InviteCheck,
-  PasswordResetAnswer,
-  PasswordResetCheck,
+  ResetLinkAnswer,
+  ResetLinkCheck,
   PullAnswer,
   PushAnswer,
   RecordType,

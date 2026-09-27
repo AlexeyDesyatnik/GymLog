@@ -8,11 +8,11 @@ import {
   isUuid,
   PASSWORD_MAX_LENGTH,
   replacesKept,
-  type AccountSummary,
+  type UserSummary,
   type InviteAnswer,
   type InviteCheck,
-  type PasswordResetAnswer,
-  type PasswordResetCheck,
+  type ResetLinkAnswer,
+  type ResetLinkCheck,
   type PullAnswer,
   type PushAnswer,
   type SessionAnswer,
@@ -21,18 +21,18 @@ import {
 } from "@gymlog/shared";
 import {
   createInvite,
-  createPasswordReset,
+  createResetLink,
   hashOf,
   inviteUsable,
-  listAccounts,
+  listUsers,
   newToken,
   openDatabase,
-  passwordResetLogin,
-  resetPassword,
+  resetLinkLogin,
+  setNewPassword,
   signIn,
   signUp,
   type SignInOutcome,
-} from "./accounts.ts";
+} from "./users.ts";
 import { records, sessions, users } from "./db/schema.ts";
 
 export interface ServerOptions {
@@ -91,7 +91,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   }
 
   /**
-   * Answers an attempt to create an account, sign in or set a new password: signs the browser in
+   * Answers an attempt to use an Invite, sign in or set a new password: signs the browser in
    * as the user, or says why not.
    */
   async function answerSignIn(reply: FastifyReply, outcome: SignInOutcome) {
@@ -150,37 +150,38 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     return { invite: await createInvite(db, owner.userId) };
   });
 
-  // Before creating an account, so the app can say at once that an Invite is used up.
+  // Before the Invite is used, so the app can say at once that it is used up.
   type CheckInvite = { Params: { invite: string } };
   app.get<CheckInvite>("/api/invites/:invite", async (request): Promise<InviteCheck> => {
     return { usable: await inviteUsable(db, request.params.invite) };
   });
 
-  app.get("/api/accounts", async (request, reply): Promise<AccountSummary[] | FastifyReply> => {
+  app.get("/api/users", async (request, reply): Promise<UserSummary[] | FastifyReply> => {
     if (!(await signedInOwner(request, reply))) return reply;
-    return listAccounts(db);
+    return listUsers(db);
   });
 
-  type CreateReset = { Body: { userId?: unknown } };
-  app.post<CreateReset>("/api/password-resets", async (request, reply): Promise<PasswordResetAnswer | FastifyReply> => {
+  type CreateResetLink = { Body: { userId?: unknown } };
+  app.post<CreateResetLink>("/api/reset-links", async (request, reply): Promise<ResetLinkAnswer | FastifyReply> => {
     if (!(await signedInOwner(request, reply))) return reply;
     const { userId } = request.body ?? {};
-    const reset = isUuid(userId) ? await createPasswordReset(db, userId) : null;
-    if (!reset) return reply.code(404).send({ error: "No such account" });
-    return { reset };
+    const resetLink = isUuid(userId) ? await createResetLink(db, userId) : null;
+    if (!resetLink) return reply.code(404).send({ error: "No such User" });
+    return { resetLink };
   });
 
   // Before setting the password, so the app can name the login, or say the link is used up.
-  type CheckReset = { Params: { reset: string } };
-  app.get<CheckReset>("/api/password-resets/:reset", async (request): Promise<PasswordResetCheck> => {
-    return { login: await passwordResetLogin(db, request.params.reset) };
+  type CheckResetLink = { Params: { resetLink: string } };
+  app.get<CheckResetLink>("/api/reset-links/:resetLink", async (request): Promise<ResetLinkCheck> => {
+    return { login: await resetLinkLogin(db, request.params.resetLink) };
   });
 
-  type Reset = { Params: { reset: string }; Body: { password?: unknown } };
-  app.post<Reset>("/api/password-resets/:reset", async (request, reply) => {
+  type UseResetLink = { Params: { resetLink: string }; Body: { password?: unknown } };
+  app.post<UseResetLink>("/api/reset-links/:resetLink", async (request, reply) => {
     const { password } = request.body ?? {};
     if (refusedValue(reply, () => checkPassword(password))) return reply;
-    return answerSignIn(reply, await resetPassword(db, { reset: request.params.reset, password: password as string }));
+    const { resetLink } = request.params;
+    return answerSignIn(reply, await setNewPassword(db, { resetLink, password: password as string }));
   });
 
   type Push = { Body: { records?: unknown } };

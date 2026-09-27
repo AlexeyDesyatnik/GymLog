@@ -2,14 +2,14 @@ import { expect, test } from "vitest";
 import { localDate } from "@gymlog/shared";
 import { pullAs, startTestServer } from "./testing/devices.ts";
 
-test("someone without an account can't sign in: an unknown login is refused like a wrong password", async () => {
+test("someone who isn't a User can't sign in: an unknown login is refused like a wrong password", async () => {
   const server = await startTestServer();
   const phone = server.device();
 
   await expect(phone.signIn("stranger")).rejects.toMatchObject({ refusal: "wrongPassword" });
 });
 
-test("an Invite creates an account with the login and password chosen, which then sign in on another device, where the user's Workouts are", async () => {
+test("an Invite makes a User with the Login and password chosen, which then sign in on another device, where the User's Workouts are", async () => {
   const server = await startTestServer();
   const phone = server.device();
   await phone.signUp("alexey", { invite: await server.ownerInvite(), password: "squat 100 x 5" });
@@ -29,7 +29,7 @@ test("a wrong password is refused, like an unknown login", async () => {
   await expect(server.device().signIn("alexey", "squat 100 x 6")).rejects.toMatchObject({ refusal: "wrongPassword" });
 });
 
-test("an Invite gives one account; anyone else coming with it afterwards is refused", async () => {
+test("an Invite makes one User; anyone else coming with it afterwards is refused", async () => {
   const server = await startTestServer();
   const invite = await server.ownerInvite();
   await server.device().signUp("alexey", { invite });
@@ -39,7 +39,7 @@ test("an Invite gives one account; anyone else coming with it afterwards is refu
   await expect(mariasPhone.signUp("maria", { invite })).rejects.toMatchObject({ refusal: "inviteUnusable" });
 });
 
-test("two people coming with one Invite at the same moment: only one of them gets an account", async () => {
+test("two people coming with one Invite at the same moment: only one of them becomes a User", async () => {
   const server = await startTestServer();
   const invite = await server.ownerInvite();
 
@@ -70,7 +70,7 @@ test("a password shorter than 8 characters is refused, and the Invite stays usab
 
   await expect(phone.signUp("maria", { invite, password: "1234567" })).rejects.toThrow("400");
 
-  expect(await phone.journal.account.inviteUsable(invite)).toBe(true);
+  expect(await phone.journal.access.inviteUsable(invite)).toBe(true);
 });
 
 test("after 5 wrong passwords for a login, even the right one is refused for a while; other logins aren't held up", async () => {
@@ -127,7 +127,7 @@ test("the Starter list is copied into a catalog once: signing in again, on any d
   expect(exercises).toEqual(afterSigningUp.records.filter((r) => r.type === "exercise"));
 });
 
-test("whoever creates an account through the owner's first Invite, from the server command, is the owner, and their device knows it", async () => {
+test("whoever becomes a User through the Owner's first Invite, from the server command, is the Owner, and their device knows it", async () => {
   const server = await startTestServer();
   const ownersPhone = server.device();
 
@@ -136,12 +136,12 @@ test("whoever creates an account through the owner's first Invite, from the serv
   expect(ownersPhone.journal.sync.state()).toEqual({ status: "synced", owner: true });
 });
 
-test("the owner creates an Invite, through which a new user gets an account who isn't the owner", async () => {
+test("the Owner creates an Invite, through which a new User comes who isn't the Owner", async () => {
   const server = await startTestServer();
   const ownersPhone = server.device();
   await ownersPhone.signUp("alexey", { invite: await server.ownerInvite() });
 
-  const invite = await ownersPhone.journal.account.createInvite();
+  const invite = await ownersPhone.journal.access.createInvite();
   const mariasPhone = server.device();
   await mariasPhone.signUp("maria", { invite });
 
@@ -153,11 +153,11 @@ test("only the owner can create Invites", async () => {
   const ownersPhone = server.device();
   await ownersPhone.signUp("alexey", { invite: await server.ownerInvite() });
   const mariasPhone = server.device();
-  await mariasPhone.signUp("maria", { invite: await ownersPhone.journal.account.createInvite() });
+  await mariasPhone.signUp("maria", { invite: await ownersPhone.journal.access.createInvite() });
   const stranger = server.device();
 
-  await expect(mariasPhone.journal.account.createInvite()).rejects.toThrow("403");
-  await expect(stranger.journal.account.createInvite()).rejects.toThrow();
+  await expect(mariasPhone.journal.access.createInvite()).rejects.toThrow("403");
+  await expect(stranger.journal.access.createInvite()).rejects.toThrow();
   const invitesAsked = await Promise.all(
     [mariasPhone, stranger].map((device) => device.fetch(`${server.url}/api/invites`, { method: "POST" })),
   );
@@ -174,15 +174,15 @@ test("a device nobody has ever signed in on says so, even when the server can't 
   expect(phone.journal.sync.state()).toEqual({ status: "neverSignedIn" });
 });
 
-test("an Invite can be checked before creating an account: it is usable until someone gets an account through it", async () => {
+test("an Invite can be checked before it is used: it is usable until someone becomes a User through it", async () => {
   const server = await startTestServer();
   const invite = await server.ownerInvite();
   const phone = server.device();
 
-  const before = await phone.journal.account.inviteUsable(invite);
+  const before = await phone.journal.access.inviteUsable(invite);
   await phone.signUp("maria", { invite });
-  const after = await server.device().journal.account.inviteUsable(invite);
-  const neverMade = await phone.journal.account.inviteUsable("no-such-invite");
+  const after = await server.device().journal.access.inviteUsable(invite);
+  const neverMade = await phone.journal.access.inviteUsable("no-such-invite");
 
   expect([before, after, neverMade]).toEqual([true, false, false]);
 });
@@ -198,61 +198,61 @@ test("once there is an owner, the server command makes no more of the owner's In
   });
 });
 
-test("the owner sees the accounts by login", async () => {
+test("the Owner sees the Users by Login", async () => {
   const server = await startTestServer();
   const ownersPhone = server.device();
   await ownersPhone.signUp("alexey", { invite: await server.ownerInvite() });
-  await server.device().signUp("maria", { invite: await ownersPhone.journal.account.createInvite() });
+  await server.device().signUp("maria", { invite: await ownersPhone.journal.access.createInvite() });
 
-  const accounts = await ownersPhone.journal.account.accounts();
+  const users = await ownersPhone.journal.access.users();
 
-  expect(accounts.map(({ login, owner, hasPassword }) => ({ login, owner, hasPassword }))).toEqual([
+  expect(users.map(({ login, owner, hasPassword }) => ({ login, owner, hasPassword }))).toEqual([
     { login: "alexey", owner: true, hasPassword: true },
     { login: "maria", owner: false, hasPassword: true },
   ]);
 });
 
-test("the owner's link for a new password sets it once: the old password stops working, and the user's other devices are signed out", async () => {
+test("the Owner's Reset link sets a new password once: the old one stops working, and the User's other devices are signed out", async () => {
   const server = await startTestServer();
   const ownersPhone = server.device();
   await ownersPhone.signUp("alexey", { invite: await server.ownerInvite() });
   const mariasPhone = server.device();
-  const invite = await ownersPhone.journal.account.createInvite();
+  const invite = await ownersPhone.journal.access.createInvite();
   await mariasPhone.signUp("maria", { invite, password: "old password" });
-  const maria = (await ownersPhone.journal.account.accounts()).find((a) => a.login === "maria")!;
+  const maria = (await ownersPhone.journal.access.users()).find((a) => a.login === "maria")!;
 
-  const reset = await ownersPhone.journal.account.createPasswordReset(maria.userId);
-  const earlierReset = await ownersPhone.journal.account.createPasswordReset(maria.userId);
+  const resetLink = await ownersPhone.journal.access.createResetLink(maria.userId);
+  const earlierResetLink = await ownersPhone.journal.access.createResetLink(maria.userId);
   const mariasComputer = server.device();
-  expect(await mariasComputer.journal.account.passwordResetLogin(reset)).toBe("maria");
-  await mariasComputer.journal.account.resetPassword(reset, "new password");
+  expect(await mariasComputer.journal.access.resetLinkLogin(resetLink)).toBe("maria");
+  await mariasComputer.journal.access.setNewPassword(resetLink, "new password");
   await mariasPhone.journal.sync.now();
 
   expect(mariasComputer.journal.sync.state()).toEqual({ status: "synced", owner: false });
   expect(mariasPhone.journal.sync.state()).toEqual({ status: "signedOut" });
   await expect(server.device().signIn("maria", "old password")).rejects.toMatchObject({ refusal: "wrongPassword" });
   await server.device().signIn("maria", "new password");
-  await expect(server.device().journal.account.resetPassword(reset, "third password")).rejects.toMatchObject({
-    refusal: "resetUnusable",
+  await expect(server.device().journal.access.setNewPassword(resetLink, "third password")).rejects.toMatchObject({
+    refusal: "resetLinkUnusable",
   });
-  expect(await server.device().journal.account.passwordResetLogin(reset)).toBeNull();
-  // Any other link for her password given before ends with it.
-  expect(await server.device().journal.account.passwordResetLogin(earlierReset)).toBeNull();
+  expect(await server.device().journal.access.resetLinkLogin(resetLink)).toBeNull();
+  // Any other Reset link of hers given before ends with it.
+  expect(await server.device().journal.access.resetLinkLogin(earlierResetLink)).toBeNull();
 });
 
-test("only the owner can see accounts and create links for new passwords", async () => {
+test("only the Owner can see the Users and create Reset links", async () => {
   const server = await startTestServer();
   const ownersPhone = server.device();
   await ownersPhone.signUp("alexey", { invite: await server.ownerInvite() });
   const mariasPhone = server.device();
-  await mariasPhone.signUp("maria", { invite: await ownersPhone.journal.account.createInvite() });
-  const [owner] = await ownersPhone.journal.account.accounts();
+  await mariasPhone.signUp("maria", { invite: await ownersPhone.journal.access.createInvite() });
+  const [owner] = await ownersPhone.journal.access.users();
   const stranger = server.device();
 
   const asked = await Promise.all(
     [mariasPhone, stranger].flatMap((device) => [
-      device.fetch(`${server.url}/api/accounts`),
-      device.fetch(`${server.url}/api/password-resets`, {
+      device.fetch(`${server.url}/api/users`),
+      device.fetch(`${server.url}/api/reset-links`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ userId: owner!.userId }),
@@ -263,20 +263,20 @@ test("only the owner can see accounts and create links for new passwords", async
   expect(asked.map((response) => response.status)).toEqual([403, 403, 401, 401]);
 });
 
-test("the server command gives the owner a link for a new password of their own", async () => {
+test("the server command gives the Owner a Reset link of their own", async () => {
   const server = await startTestServer();
   await server.device().signUp("alexey", { invite: await server.ownerInvite(), password: "forgotten password" });
 
-  const reset = await server.ownerPasswordReset();
-  await server.device().journal.account.resetPassword(reset, "remembered password");
+  const resetLink = await server.ownerResetLink();
+  await server.device().journal.access.setNewPassword(resetLink, "remembered password");
 
   const phone = server.device();
   await phone.signIn("alexey", "remembered password");
   expect(phone.journal.sync.state()).toEqual({ status: "synced", owner: true });
 });
 
-test("the server command gives no link for a new password while there is no owner", async () => {
+test("the server command gives no Reset link while there is no Owner", async () => {
   const server = await startTestServer();
 
-  await expect(server.ownerPasswordReset()).rejects.toThrow("no owner");
+  await expect(server.ownerResetLink()).rejects.toThrow("no owner");
 });

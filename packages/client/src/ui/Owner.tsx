@@ -1,14 +1,14 @@
 import { useState } from "react";
-import type { AccountSummary } from "@gymlog/shared";
+import type { UserSummary } from "@gymlog/shared";
 import type { Journal } from "../journal/journal.ts";
-import { inviteLink, passwordResetLink } from "./useRoute.ts";
+import { inviteLink, resetLinkUrl } from "./useRoute.ts";
 
-/** What only the owner does: Invites for new users, and links for new passwords for those who forgot theirs. */
+/** What only the Owner does: Invites for new Users, and Reset links for those who forgot their password. */
 export function OwnerTools({ journal }: { journal: Journal }) {
   return (
     <>
       <InviteCreator journal={journal} />
-      <AccountList journal={journal} />
+      <UserList journal={journal} />
     </>
   );
 }
@@ -20,7 +20,7 @@ function InviteCreator({ journal }: { journal: Journal }) {
   async function create() {
     setError(null);
     try {
-      setLink(inviteLink(await journal.account.createInvite()));
+      setLink(inviteLink(await journal.access.createInvite()));
     } catch (failure) {
       setError(String(failure));
     }
@@ -47,15 +47,15 @@ function InviteCreator({ journal }: { journal: Journal }) {
   );
 }
 
-/** The accounts, each with a way to give its user a link for a new password. */
-function AccountList({ journal }: { journal: Journal }) {
-  const [accounts, setAccounts] = useState<AccountSummary[] | null>(null);
+/** The Users, each with a way to give them a Reset link. */
+function UserList({ journal }: { journal: Journal }) {
+  const [users, setUsers] = useState<UserSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
     setError(null);
     try {
-      setAccounts(await journal.account.accounts());
+      setUsers(await journal.access.users());
     } catch (failure) {
       setError(String(failure));
     }
@@ -63,14 +63,14 @@ function AccountList({ journal }: { journal: Journal }) {
 
   return (
     <section className="owner-tool">
-      {accounts === null ? (
+      {users === null ? (
         <button className="button" type="button" onClick={() => void load()}>
           Аккаунты и пароли
         </button>
       ) : (
-        <ul className="accounts">
-          {accounts.map((account) => (
-            <AccountRow key={account.userId} journal={journal} account={account} />
+        <ul className="user-list">
+          {users.map((user) => (
+            <UserRow key={user.userId} journal={journal} user={user} />
           ))}
         </ul>
       )}
@@ -83,25 +83,25 @@ function AccountList({ journal }: { journal: Journal }) {
   );
 }
 
-function AccountRow({ journal, account }: { journal: Journal; account: AccountSummary }) {
+function UserRow({ journal, user }: { journal: Journal; user: UserSummary }) {
   const [link, setLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function create() {
     setError(null);
     try {
-      setLink(passwordResetLink(await journal.account.createPasswordReset(account.userId)));
+      setLink(resetLinkUrl(await journal.access.createResetLink(user.userId)));
     } catch (failure) {
       setError(String(failure));
     }
   }
 
   return (
-    <li className="account">
-      <div className="account-head">
-        <span className="account-login">{account.login}</span>
-        {account.owner && <span className="finished-tag">владелец</span>}
-        {!account.hasPassword && <span className="finished-tag">без пароля</span>}
+    <li className="user-card">
+      <div className="user-head">
+        <span className="user-login">{user.login}</span>
+        {user.owner && <span className="finished-tag">владелец</span>}
+        {!user.hasPassword && <span className="finished-tag">без пароля</span>}
       </div>
       {link === null ? (
         <button className="button quiet" type="button" onClick={() => void create()}>

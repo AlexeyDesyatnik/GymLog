@@ -3,10 +3,10 @@ import { useEffect, useState } from "react";
 export type Route =
   | { screen: "workouts" }
   | { screen: "workout"; workoutId: string }
-  /** Creating an account through an Invite opened from its link. */
+  /** Using an Invite opened from its link to become a User. */
   | { screen: "signUp"; invite: string }
-  /** Setting a new password through the owner's link. */
-  | { screen: "passwordReset"; reset: string };
+  /** Setting a new password through a Reset link. */
+  | { screen: "resetLink"; resetLink: string };
 
 /** Screens live in the URL hash, so the phone's back button and a reload keep the user in place. */
 export function useRoute(): Route {
@@ -32,9 +32,9 @@ export function inviteLink(invite: string): string {
   return new URL(`#/invite/${invite}`, window.location.href).href;
 }
 
-/** The link for a new password, to send to the user who forgot theirs. */
-export function passwordResetLink(reset: string): string {
-  return new URL(`#/reset/${reset}`, window.location.href).href;
+/** The URL of a Reset link, to send to the User who forgot their password. */
+export function resetLinkUrl(resetLink: string): string {
+  return new URL(`#/reset/${resetLink}`, window.location.href).href;
 }
 
 function parse(hash: string): Route {
@@ -42,7 +42,7 @@ function parse(hash: string): Route {
   if (workout) return { screen: "workout", workoutId: decodeURIComponent(workout[1]!) };
   const invite = /^#\/invite\/([^/]+)$/.exec(hash);
   if (invite) return { screen: "signUp", invite: decodeURIComponent(invite[1]!) };
-  const reset = /^#\/reset\/([^/]+)$/.exec(hash);
-  if (reset) return { screen: "passwordReset", reset: decodeURIComponent(reset[1]!) };
+  const resetLink = /^#\/reset\/([^/]+)$/.exec(hash);
+  if (resetLink) return { screen: "resetLink", resetLink: decodeURIComponent(resetLink[1]!) };
   return { screen: "workouts" };
 }

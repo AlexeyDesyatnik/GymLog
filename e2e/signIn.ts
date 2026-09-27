@@ -1,11 +1,11 @@
 import { expect, request, type Page } from "@playwright/test";
 
-/** The run's owner, who creates the Invites of its tests. */
+/** The run's Owner, who creates the Invites of its tests. */
 const OWNER = { login: "the owner", password: "the owner's password" };
 
 /**
- * A fresh Invite from the run's owner, who creates an account through the owner's first Invite
- * from the global setup the first time, and signs in after that.
+ * A fresh Invite from the run's Owner, who becomes a User through the Owner's first Invite from
+ * the global setup the first time, and signs in after that.
  */
 async function inviteFromOwner(baseURL: string): Promise<string> {
   const owner = await request.newContext({ baseURL });
@@ -13,7 +13,7 @@ async function inviteFromOwner(baseURL: string): Promise<string> {
     const signedIn = async () => (await owner.post("/api/sign-in", { data: OWNER })).ok();
     const signedUp = async () =>
       (await owner.post("/api/sign-up", { data: { ...OWNER, invite: process.env.GYMLOG_E2E_OWNER_INVITE } })).ok();
-    // A test running alongside may have just created the owner's account, and used the Invite up.
+    // A test running alongside may have just used the Owner's Invite up.
     expect((await signedIn()) || (await signedUp()) || (await signedIn())).toBe(true);
     const created = await owner.post("/api/invites", { data: {} });
     expect(created.ok()).toBe(true);
@@ -34,8 +34,8 @@ function passwordOf(login: string): string {
 }
 
 /**
- * Opens a fresh Invite on this page and creates an account there with this login, then waits
- * for the first sync.
+ * Opens a fresh Invite on this page and becomes a new User there with this Login, then waits for
+ * the first sync.
  */
 export async function signUp(page: Page, baseURL: string, login: string) {
   await page.goto(`/#/invite/${await inviteFromOwner(baseURL)}`);
