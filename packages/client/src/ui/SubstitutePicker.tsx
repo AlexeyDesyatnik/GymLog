@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import type { Entry, Exercise, Journal } from "../journal/journal.ts";
+import { isRefusal, type Entry, type Exercise, type Journal } from "../journal/journal.ts";
 
 /** How many suggestions fit above the phone keyboard. */
 const SUGGESTION_COUNT = 5;
@@ -37,7 +37,8 @@ export function SubstitutePicker({ journal, entry, onSubstituted, onCancel }: Su
         if (current) setSuggestions(found.slice(0, SUGGESTION_COUNT));
       },
       // The Entry is gone, e.g. deleted on another screen: there is nothing to suggest for.
-      () => {
+      (error: unknown) => {
+        if (!isRefusal(error)) throw error;
         if (current) setSuggestions([]);
       },
     );
@@ -53,7 +54,8 @@ export function SubstitutePicker({ journal, entry, onSubstituted, onCancel }: Su
     try {
       await journal.substituteEntry(entry.id, exerciseName);
       await onSubstituted();
-    } catch {
+    } catch (error) {
+      if (!isRefusal(error)) throw error;
       setRefused(true);
     } finally {
       savingNow.current = false;

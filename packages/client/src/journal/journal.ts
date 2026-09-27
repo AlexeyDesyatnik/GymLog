@@ -108,7 +108,11 @@ export interface WorkoutWithEntries extends Workout {
   planNotation: string;
 }
 
-/** The single interface the UI uses for everything a user does with their Workouts. */
+/**
+ * The single interface the UI uses for everything a user does with their Workouts. A call
+ * the Journal won't carry out is refused: it rejects with an error isRefusal knows. Any
+ * other rejection means the store itself is unusable.
+ */
 export interface Journal {
   /** The state of the local store on this device; calls wait while it is opening or blocked. */
   storeState(): StoreState;
@@ -158,6 +162,12 @@ export interface Journal {
    */
   setPlan(workoutId: string, notation: string): Promise<PlanLine[]>;
   close(): void;
+}
+
+/** The Journal refused the call: what was asked is forbidden or wrong, and the store is fine. */
+export function isRefusal(error: unknown): boolean {
+  // Every refusal, the Journal's own and the shared validation's, is a RangeError.
+  return error instanceof RangeError;
 }
 
 export interface SetValues {

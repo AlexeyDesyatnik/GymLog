@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { formatReps, parsePlan, type PlanLineProblem } from "@gymlog/shared";
-import type { Journal } from "../journal/journal.ts";
+import { isRefusal, type Journal } from "../journal/journal.ts";
 import { showNumber, showRpe } from "./numbers.ts";
 import { clearPlanDraft, savePlanDraft, type PlanDraft } from "./planDraft.ts";
 
@@ -58,7 +58,8 @@ export function PlanEditor({ journal, workoutId, draft, focusOnOpen, onClose, on
       } else {
         setOutcome("lines-skipped");
       }
-    } catch {
+    } catch (error) {
+      if (!isRefusal(error)) throw error;
       setOutcome("failed");
     }
   }
