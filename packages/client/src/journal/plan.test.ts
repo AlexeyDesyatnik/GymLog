@@ -14,6 +14,12 @@ async function planOf(journal: Awaited<ReturnType<typeof journalWithWorkout>>["j
   return workout!.entries.map((e) => [e.exercise.primaryName, e.plannedSets.map((s) => [s.weight, s.reps])]);
 }
 
+/** Every Planned Set of the Workout's Entries: weight, reps, highest reps and Target RPE. */
+async function plannedSetsOf(journal: Awaited<ReturnType<typeof journalWithWorkout>>["journal"], workoutId: string) {
+  const workout = await journal.getWorkout(workoutId);
+  return workout!.entries.flatMap((e) => e.plannedSets.map((s) => [s.weight, s.reps, s.maxReps, s.targetRpe]));
+}
+
 test("a Plan line becomes an Entry with as many Planned Sets as the group says", async () => {
   const { journal, workout } = await journalWithWorkout();
 
@@ -111,6 +117,34 @@ test("the paper form with spaces works for a bodyweight group too", async () => 
     ],
   ]);
 });
+
+test.each([
+  ["pull-up x8x2 x6", "pull-up", [[null, 8], [null, 8], [null, 6]]],
+  ["pull-up x8 x8 x8", "pull-up", [[null, 8], [null, 8], [null, 8]]],
+  ["dips 20x8 x6", "dips", [[20, 8], [null, 6]]],
+])("a bodyweight group after another group stays its own group: %j", async (line, name, sets) => {
+  const { journal, workout } = await journalWithWorkout();
+
+  await journal.setPlan(workout.id, line);
+
+  expect(await planOf(journal, workout.id)).toEqual([[name, sets]]);
+});
+
+test.each(["pull-up x8x2 x6", "pull-up x8@8 x8 x6x2", "pull-up x8-10x2 x6", "dips 20x8 x6x2", "dips x8 20x6 x5"])(
+  "the Plan notation read back from %j sets the same Planned Sets again",
+  async (line) => {
+    const { journal, workout } = await journalWithWorkout();
+    await journal.setPlan(workout.id, line);
+    const first = (await journal.getWorkout(workout.id))!;
+    const firstSets = await plannedSetsOf(journal, workout.id);
+
+    await journal.setPlan(workout.id, first.planNotation);
+
+    expect(firstSets).not.toEqual([]);
+    expect(await plannedSetsOf(journal, workout.id)).toEqual(firstSets);
+    expect((await journal.getWorkout(workout.id))!.planNotation).toBe(first.planNotation);
+  },
+);
 
 test("digits inside the Exercise name stay part of the name", async () => {
   const { journal, workout } = await journalWithWorkout();

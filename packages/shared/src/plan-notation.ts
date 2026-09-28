@@ -51,16 +51,32 @@ const GROUP = new RegExp(
 /** A digit touching a separator: part of a group, never of an Exercise name. */
 const GROUP_FRAGMENT = new RegExp(`\\d${SEP}|${SEP}\\d`);
 
+/** A separator typed as a token of its own, as in "80 x 5". */
+const LONE_SEP = new RegExp(`^${SEP}$`);
+/** A token that starts a group with its separator, as in "x5". */
+const SEP_THEN_DIGIT = new RegExp(`^${SEP}\\d`);
+
 /**
  * The paper habit "80 x 5 x 3" and "x 8 x 3" becomes "80x5x3" and "x8x3", and so does a
- * stray space before a separator ("100 x5"). A space only after one ("80x 70x8") is a
- * missing number, so it isn't joined and the line reads as a mistyped group. The price:
- * a name ending in a number right before a bodyweight group ("dips 2 x8") reads as a
- * weight, which is far rarer than the typo.
+ * stray space before a separator ("100 x5"). A space before a separator is kept when the
+ * token typed before it is a whole group, so "x8x2 x6" and "x8 x6" stay two groups. A space
+ * only after one ("80x 70x8") is a missing number, so it isn't joined and the line reads as
+ * a mistyped group. The price: a name ending in a number right before a bodyweight group
+ * ("dips 2 x8") reads as a weight, which is far rarer than the typo.
  */
-const SEP_BEFORE_DIGIT = new RegExp(`(^|\\s)(${SEP})\\s+(?=\\d)`, "g");
-const SPACED_SEP_BETWEEN_DIGITS = new RegExp(`(\\d)\\s+(${SEP})\\s+(?=\\d)`, "g");
-const SPACE_BEFORE_SEP = new RegExp(`(\\d)\\s+(${SEP})(?=\\d)`, "g");
+function joinSpacedGroups(tokens: string[]): string[] {
+  const joined: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    // The token as typed, not as joined: in "80 x 5 x 3" the last "x3" follows "5", not "80x5".
+    const typedBefore = tokens[i - 1];
+    let token = tokens[i]!;
+    if (LONE_SEP.test(token) && /^\d/.test(tokens[i + 1] ?? "")) token += tokens[++i];
+    const continuesGroup = typedBefore !== undefined && /\d$/.test(typedBefore) && !GROUP.test(typedBefore);
+    if (SEP_THEN_DIGIT.test(token) && continuesGroup) joined[joined.length - 1] += token;
+    else joined.push(token);
+  }
+  return joined;
+}
 
 /**
  * A Target RPE may be typed as "@7", "@ 7", "rpe7" or "рпе 7" in any case, also after a space;
@@ -82,12 +98,7 @@ export function parsePlan(notation: string): PlanLine[] {
 }
 
 export function parsePlanLine(line: string): PlanLine {
-  const joined = line
-    .replace(RPE_MARK, "@")
-    .replace(SEP_BEFORE_DIGIT, "$1$2")
-    .replace(SPACED_SEP_BETWEEN_DIGITS, "$1$2")
-    .replace(SPACE_BEFORE_SEP, "$1$2");
-  const tokens = joined.trim().split(/\s+/);
+  const tokens = joinSpacedGroups(line.replace(RPE_MARK, "@").trim().split(/\s+/));
   if (BARE_RPE_WORD.test(tokens.at(-1) ?? "")) return { ok: false, problem: "bad-target-rpe" };
   const groups: PlanGroup[] = [];
   // Groups are recognised from the end of the line; whatever is left is the name.
