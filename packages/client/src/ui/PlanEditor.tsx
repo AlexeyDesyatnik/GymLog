@@ -42,13 +42,19 @@ export function PlanEditor({ journal, workoutId, today, draft, focusOnOpen, onCl
   const [caret, setCaret] = useState(draft.notation.length);
   /** Where the caret goes once a picked suggestion is in the field. */
   const caretAfterPick = useRef<number | null>(null);
+  /** The line a suggestion was picked for, as it was put in; it needs no more suggestions until it changes. */
+  const [pickedLine, setPickedLine] = useState<string | null>(null);
 
   // A line with a name and no numbers yet is an Exercise name being typed.
   const caretLine = lineAt(notation, caret);
-  const typedName = notation.slice(caretLine.start, caretLine.end).trim();
-  const reading = parsePlanLine(typedName);
-  const typingName = typedName !== "" && !reading.ok && reading.problem === "no-groups";
-  const suggestions = useSuggestions(journal, today, typingName ? typedName : null);
+  const caretLineText = notation.slice(caretLine.start, caretLine.end);
+  const caretLineReading = parsePlanLine(caretLineText);
+  const typingName =
+    caretLineText.trim() !== "" &&
+    caretLineText !== pickedLine &&
+    !caretLineReading.ok &&
+    caretLineReading.problem === "no-groups";
+  const suggestions = useSuggestions(journal, today, typingName ? caretLineText.trim() : null);
 
   useLayoutEffect(() => {
     const textarea = field.current;
@@ -78,11 +84,12 @@ export function PlanEditor({ journal, workoutId, today, draft, focusOnOpen, onCl
 
   /** Puts the picked Exercise's Primary name in place of the typed one, followed by last time's numbers. */
   async function pick(exercise: Exercise) {
-    const numbers = await journal.prefillNumbers(exercise.id);
+    const numbers = await journal.prefillNumbers(workoutId, exercise.id);
     const line = numbers === null ? `${exercise.primaryName} ` : `${exercise.primaryName} ${numbers}`;
     const position = caretLine.start + line.length;
     caretAfterPick.current = position;
     setCaret(position);
+    setPickedLine(line);
     change(notation.slice(0, caretLine.start) + line + notation.slice(caretLine.end));
   }
 

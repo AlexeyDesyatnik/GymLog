@@ -1,4 +1,5 @@
 import { Dexie, type EntityTable, type Table, type Transaction } from "dexie";
+import { exerciseNameKey } from "@gymlog/shared";
 import type { EntryRecord, ExerciseRecord, RecordType, SetRecord, SyncedRecord, WorkoutRecord } from "@gymlog/shared";
 
 /**
@@ -173,56 +174,63 @@ export async function liveSetsOf(db: JournalDb, entryIds: string[]): Promise<Set
     .sort((a, b) => a.position - b.position);
 }
 
+/** Workouts in the order of the list of Workouts, earliest first: by date, then by when each was created. */
+export function compareWorkoutOrder(a: WorkoutRecord, b: WorkoutRecord): number {
+  return a.date.localeCompare(b.date) || a.createdAt - b.createdAt;
+}
+
+/** These Entries, each with its Workout, keeping only live Entries of live Workouts. */
+async function withLiveWorkouts(
+  db: JournalDb,
+  entries: EntryRecord[],
+): Promise<{ entry: EntryRecord; workout: WorkoutRecord }[]> {
+  const workouts = await db.workouts.bulkGet(entries.map((e) => e.workoutId));
+  return entries.flatMap((entry, i) => {
+    const workout = workouts[i];
+    return !entry.deleted && workout && !workout.deleted ? [{ entry, workout }] : [];
+  });
+}
+
 /**
  * The live Entries of this Exercise in live Workouts, each with its Workout: the most recent
- * Workout by date first, and in the order of Entries within one Workout.
+ * Workout first, and in the order of Entries within one Workout.
  */
 export async function liveEntriesOfExercise(
   db: JournalDb,
   exerciseId: string,
 ): Promise<{ entry: EntryRecord; workout: WorkoutRecord }[]> {
-  const entries = (await db.entries.toArray()).filter((e) => !e.deleted && e.exerciseId === exerciseId);
-  const workouts = await db.workouts.bulkGet(entries.map((e) => e.workoutId));
-  return entries
-    .flatMap((entry, i) => {
-      const workout = workouts[i];
-      return workout && !workout.deleted ? [{ entry, workout }] : [];
-    })
-    .sort(
-      (a, b) =>
-        b.workout.date.localeCompare(a.workout.date) ||
-        b.workout.createdAt - a.workout.createdAt ||
-        a.entry.position - b.entry.position,
-    );
+  const entries = (await db.entries.toArray()).filter((e) => e.exerciseId === exerciseId);
+  return (await withLiveWorkouts(db, entries)).sort(
+    (a, b) => compareWorkoutOrder(b.workout, a.workout) || a.entry.position - b.entry.position,
+  );
 }
 
 /** For each Exercise, the live Workouts with an Entry of it, each once. */
 export async function exerciseUses(db: JournalDb): Promise<Map<string, WorkoutRecord[]>> {
-  const entries = (await db.entries.toArray()).filter((e) => !e.deleted);
-  const workouts = await db.workouts.bulkGet(entries.map((e) => e.workoutId));
   const uses = new Map<string, WorkoutRecord[]>();
-  entries.forEach((entry, i) => {
-    const workout = workouts[i];
-    if (!workout || workout.deleted) return;
+  for (const { entry, workout } of await withLiveWorkouts(db, await db.entries.toArray())) {
     const used = uses.get(entry.exerciseId) ?? [];
     if (!used.some((w) => w.id === workout.id)) used.push(workout);
     uses.set(entry.exerciseId, used);
-  });
+  }
   return uses;
+}
+
+/** The live Exercises with a name that contains the typed text, ignoring case. */
+export async function exercisesMatching(db: JournalDb, text: string): Promise<ExerciseRecord[]> {
+  const key = exerciseNameKey(text);
+  return (await db.exercises.toArray()).filter((e) => !e.deleted && e.nameKeys.some((name) => name.includes(key)));
 }
 
 /** The Exercises used as a Substitute for this Exercise in live Workouts, most recently used first. */
 export async function previousSubstitutesFor(db: JournalDb, exerciseId: string): Promise<string[]> {
   // Only Substitutes are in this index.
-  const substitutes = (await db.entries.orderBy("substitutesEntryId").toArray()).filter((e) => !e.deleted);
-  const replaced = await db.entries.bulkGet(substitutes.map((e) => e.substitutesEntryId!));
-  const workouts = await db.workouts.bulkGet(substitutes.map((e) => e.workoutId));
-  const uses = substitutes.flatMap((substitute, i) => {
-    const workout = workouts[i];
+  const substitutes = await withLiveWorkouts(db, await db.entries.orderBy("substitutesEntryId").toArray());
+  const replaced = await db.entries.bulkGet(substitutes.map(({ entry }) => entry.substitutesEntryId!));
+  const uses = substitutes.filter((_, i) => {
     const replacedEntry = replaced[i];
-    if (!workout || workout.deleted || !replacedEntry || replacedEntry.deleted) return [];
-    return replacedEntry.exerciseId === exerciseId ? [{ exerciseId: substitute.exerciseId, workout }] : [];
+    return replacedEntry && !replacedEntry.deleted && replacedEntry.exerciseId === exerciseId;
   });
-  uses.sort((a, b) => b.workout.date.localeCompare(a.workout.date) || b.workout.createdAt - a.workout.createdAt);
-  return [...new Set(uses.map((use) => use.exerciseId))];
+  uses.sort((a, b) => compareWorkoutOrder(b.workout, a.workout));
+  return [...new Set(uses.map(({ entry }) => entry.exerciseId))];
 }

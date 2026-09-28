@@ -231,7 +231,10 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
           </button>
           {entrySuggestions.length > 0 ? (
             <div className="add-entry-suggestions">
-              <SuggestionList suggestions={entrySuggestions} onPick={(exercise) => void addEntry(exercise.primaryName)} />
+              <SuggestionList
+                suggestions={entrySuggestions}
+                onPick={(exercise) => void addEntry(exercise.primaryName)}
+              />
             </div>
           ) : null}
         </form>
