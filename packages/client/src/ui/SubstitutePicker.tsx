@@ -1,12 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { OwnExerciseRefusal, type Entry, type Exercise, type Journal } from "../journal/journal.ts";
-
-/** How many suggestions fit above the phone keyboard. */
-const SUGGESTION_COUNT = 5;
+import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import type { LocalDate } from "@gymlog/shared";
+import { OwnExerciseRefusal, type Entry, type Journal } from "../journal/journal.ts";
+import { SuggestionList, useSuggestions } from "./Suggestions.tsx";
 
 interface SubstitutePickerProps {
   journal: Journal;
   entry: Entry;
+  today: LocalDate;
   onSubstituted: () => Promise<void>;
   onCancel: () => void;
 }
@@ -15,9 +15,9 @@ interface SubstitutePickerProps {
  * Chooses the Exercise of a Substitute: typed, or tapped among the suggestions, where last time's
  * Substitutes come first. It opens from a tap, so its name field takes focus and brings up the keyboard.
  */
-export function SubstitutePicker({ journal, entry, onSubstituted, onCancel }: SubstitutePickerProps) {
+export function SubstitutePicker({ journal, entry, today, onSubstituted, onCancel }: SubstitutePickerProps) {
   const [name, setName] = useState("");
-  const [suggestions, setSuggestions] = useState<Exercise[]>([]);
+  const suggestions = useSuggestions(journal, today, name, entry.id);
   /** The name given is the Entry's own Exercise, under another name or spelling. */
   const [refused, setRefused] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -28,17 +28,6 @@ export function SubstitutePicker({ journal, entry, onSubstituted, onCancel }: Su
   useLayoutEffect(() => {
     input.current?.focus();
   }, []);
-
-  useEffect(() => {
-    // Only the answer for the latest text is shown, whatever order the answers come in.
-    let current = true;
-    void journal.suggestSubstitutes(entry.id, name).then((found) => {
-      if (current) setSuggestions(found.slice(0, SUGGESTION_COUNT));
-    });
-    return () => {
-      current = false;
-    };
-  }, [journal, entry.id, name]);
 
   async function substitute(exerciseName: string) {
     if (!exerciseName.trim() || savingNow.current) return;
@@ -85,22 +74,11 @@ export function SubstitutePicker({ journal, entry, onSubstituted, onCancel }: Su
         />
       </label>
       {refused ? <p className="plan-message">Замена должна быть другим упражнением.</p> : null}
-      {suggestions.length > 0 ? (
-        <ul className="suggestions" aria-label="Подсказки">
-          {suggestions.map((exercise) => (
-            <li key={exercise.id}>
-              <button
-                className="suggestion"
-                type="button"
-                onClick={() => void substitute(exercise.primaryName)}
-                disabled={saving}
-              >
-                {exercise.primaryName}
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <SuggestionList
+        suggestions={suggestions}
+        onPick={(exercise) => void substitute(exercise.primaryName)}
+        disabled={saving}
+      />
       <div className="actions">
         <button className="button primary" type="submit" disabled={!name.trim() || saving}>
           Заменить

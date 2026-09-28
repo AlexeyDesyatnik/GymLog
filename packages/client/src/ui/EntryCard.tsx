@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { formatPlanSets, formatReps } from "@gymlog/shared";
+import { formatPlanSets, formatReps, type LocalDate } from "@gymlog/shared";
 import type { Entry, Journal, PlannedSet } from "../journal/journal.ts";
 import { parseReps, parseWeight, showNumber, showRpe, showWeight } from "./numbers.ts";
 import { ConfirmDelete } from "./ConfirmDelete.tsx";
@@ -13,10 +13,11 @@ interface EntryCardProps {
   entry: Entry;
   /** The Workout is Finished, so the Entry is read-only and shows what was Not performed. */
   finished: boolean;
+  today: LocalDate;
   onChange: () => Promise<void>;
 }
 
-export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps) {
+export function EntryCard({ journal, entry, finished, today, onChange }: EntryCardProps) {
   const performedPairs = entry.pairs.filter((pair) => pair.performed !== null);
   const [nextPlanned, ...laterPlanned] = entry.pairs.flatMap((pair) => (pair.performed ? [] : [pair.planned!]));
   const notPerformed = entry.pairs.flatMap((pair, i) =>
@@ -135,6 +136,7 @@ export function EntryCard({ journal, entry, finished, onChange }: EntryCardProps
         <SubstitutePicker
           journal={journal}
           entry={entry}
+          today={today}
           onSubstituted={async () => {
             setSubstituting(false);
             await onChange();

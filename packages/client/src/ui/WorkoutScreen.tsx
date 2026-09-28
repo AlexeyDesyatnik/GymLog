@@ -6,6 +6,7 @@ import { EntryCard } from "./EntryCard.tsx";
 import { formatWorkoutDate } from "./format.ts";
 import { PlanEditor } from "./PlanEditor.tsx";
 import { clearPlanDraft, loadPlanDraft, type PlanDraft } from "./planDraft.ts";
+import { SuggestionList, useSuggestions } from "./Suggestions.tsx";
 import { workoutsHref } from "./useRoute.ts";
 
 /**
@@ -69,6 +70,8 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
   /** undefined while loading, null when there is no such Workout. */
   const [workout, setWorkout] = useState<WorkoutWithEntries | null | undefined>(undefined);
   const [exerciseName, setExerciseName] = useState("");
+  // Suggested once the user starts typing a name.
+  const entrySuggestions = useSuggestions(journal, today, exerciseName.trim() ? exerciseName : null);
   /** What the Plan editor works on while it is open, and whether it opened from a tap. */
   const [planEditor, setPlanEditor] = useState<{ draft: PlanDraft; tapped: boolean } | null>(null);
   /** Finishing or undoing it is under way, so a second tap does nothing. */
@@ -105,12 +108,16 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
     if (draft) flushSync(() => setPlanEditor({ draft, tapped: true }));
   }
 
-  async function addEntry(event: FormEvent) {
-    event.preventDefault();
-    if (!exerciseName.trim()) return;
-    await journal.addEntry(workoutId, exerciseName);
+  async function addEntry(name: string) {
+    if (!name.trim()) return;
+    await journal.addEntry(workoutId, name);
     setExerciseName("");
     await reload();
+  }
+
+  function submitEntry(event: FormEvent) {
+    event.preventDefault();
+    void addEntry(exerciseName);
   }
 
   /** Runs finishing or undoing it once per tap, then shows the result. */
@@ -173,6 +180,7 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
           journal={journal}
           workoutId={workoutId}
           draft={planEditor.draft}
+          today={today}
           focusOnOpen={planEditor.tapped}
           onClose={() => setPlanEditor(null)}
           onApplied={refresh}
@@ -188,13 +196,20 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
       ) : (
         <ol className="entries">
           {workout.entries.map((entry) => (
-            <EntryCard key={entry.id} journal={journal} entry={entry} finished={workout.finished} onChange={refresh} />
+            <EntryCard
+              key={entry.id}
+              journal={journal}
+              entry={entry}
+              finished={workout.finished}
+              today={today}
+              onChange={refresh}
+            />
           ))}
         </ol>
       )}
 
       {workout.finished ? null : (
-        <form className="add-entry" onSubmit={addEntry}>
+        <form className="add-entry" onSubmit={submitEntry}>
           <label className="field">
             <span className="field-label">Упражнение</span>
             <input
@@ -214,6 +229,11 @@ export function WorkoutScreen({ journal, workoutId, today }: WorkoutScreenProps)
           <button className="button primary" type="submit" disabled={!exerciseName.trim()}>
             Добавить
           </button>
+          {entrySuggestions.length > 0 ? (
+            <div className="add-entry-suggestions">
+              <SuggestionList suggestions={entrySuggestions} onPick={(exercise) => void addEntry(exercise.primaryName)} />
+            </div>
+          ) : null}
         </form>
       )}
 

@@ -1,12 +1,14 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { formatReps, parsePlan, type PlanLineProblem } from "@gymlog/shared";
-import type { Journal } from "../journal/journal.ts";
+import { formatReps, parsePlan, parsePlanLine, type LocalDate, type PlanLineProblem } from "@gymlog/shared";
+import type { Exercise, Journal } from "../journal/journal.ts";
 import { showNumber, showRpe } from "./numbers.ts";
 import { clearPlanDraft, savePlanDraft, type PlanDraft } from "./planDraft.ts";
+import { SuggestionList, useSuggestions } from "./Suggestions.tsx";
 
 interface PlanEditorProps {
   journal: Journal;
   workoutId: string;
+  today: LocalDate;
   /** What the editor opens with: the stored Plan, or an unfinished draft of it. */
   draft: PlanDraft;
   /** Put the cursor at the end of the notation at once, so typing can start without another tap. */
@@ -26,9 +28,35 @@ const PROBLEMS: Record<PlanLineProblem, string> = {
 
 type Outcome = "editing" | "lines-skipped";
 
-export function PlanEditor({ journal, workoutId, draft, focusOnOpen, onClose, onApplied }: PlanEditorProps) {
+/** Where the line holding the caret starts and ends in the notation. */
+function lineAt(notation: string, caret: number): { start: number; end: number } {
+  const start = notation.lastIndexOf("\n", caret - 1) + 1;
+  const end = notation.indexOf("\n", caret);
+  return { start, end: end === -1 ? notation.length : end };
+}
+
+export function PlanEditor({ journal, workoutId, today, draft, focusOnOpen, onClose, onApplied }: PlanEditorProps) {
   const [notation, setNotation] = useState(draft.notation);
   const field = useRef<HTMLTextAreaElement>(null);
+  /** Where the caret is; a controlled field starts with it at the end. */
+  const [caret, setCaret] = useState(draft.notation.length);
+  /** Where the caret goes once a picked suggestion is in the field. */
+  const caretAfterPick = useRef<number | null>(null);
+
+  // A line with a name and no numbers yet is an Exercise name being typed.
+  const caretLine = lineAt(notation, caret);
+  const typedName = notation.slice(caretLine.start, caretLine.end).trim();
+  const reading = parsePlanLine(typedName);
+  const typingName = typedName !== "" && !reading.ok && reading.problem === "no-groups";
+  const suggestions = useSuggestions(journal, today, typingName ? typedName : null);
+
+  useLayoutEffect(() => {
+    const textarea = field.current;
+    const position = caretAfterPick.current;
+    if (!textarea || position === null) return;
+    caretAfterPick.current = null;
+    textarea.setSelectionRange(position, position);
+  }, [notation]);
 
   // A layout effect runs while the opening tap is still being handled, which phones
   // require before they show the keyboard.
@@ -46,6 +74,16 @@ export function PlanEditor({ journal, workoutId, draft, focusOnOpen, onClose, on
     setNotation(value);
     setOutcome("editing");
     savePlanDraft(workoutId, { notation: value, basedOn: draft.basedOn });
+  }
+
+  /** Puts the picked Exercise's Primary name in place of the typed one, followed by last time's numbers. */
+  async function pick(exercise: Exercise) {
+    const numbers = await journal.prefillNumbers(exercise.id);
+    const line = numbers === null ? `${exercise.primaryName} ` : `${exercise.primaryName} ${numbers}`;
+    const position = caretLine.start + line.length;
+    caretAfterPick.current = position;
+    setCaret(position);
+    change(notation.slice(0, caretLine.start) + line + notation.slice(caretLine.end));
   }
 
   async function done() {
@@ -72,7 +110,11 @@ export function PlanEditor({ journal, workoutId, draft, focusOnOpen, onClose, on
           ref={field}
           className="plan-text"
           value={notation}
-          onChange={(e) => change(e.target.value)}
+          onChange={(e) => {
+            change(e.target.value);
+            setCaret(e.target.selectionStart);
+          }}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           placeholder={"bench press 80x5x3 70x8\npull-up x8x3"}
           rows={Math.max(4, lines.length + 1)}
           autoComplete="off"
@@ -81,6 +123,8 @@ export function PlanEditor({ journal, workoutId, draft, focusOnOpen, onClose, on
           spellCheck={false}
         />
       </label>
+
+      <SuggestionList suggestions={suggestions} onPick={(exercise) => void pick(exercise)} keepFocus />
 
       {readings.length > 0 ? (
         <ul className="plan-lines">

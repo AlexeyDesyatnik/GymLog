@@ -173,6 +173,44 @@ export async function liveSetsOf(db: JournalDb, entryIds: string[]): Promise<Set
     .sort((a, b) => a.position - b.position);
 }
 
+/**
+ * The live Entries of this Exercise in live Workouts, each with its Workout: the most recent
+ * Workout by date first, and in the order of Entries within one Workout.
+ */
+export async function liveEntriesOfExercise(
+  db: JournalDb,
+  exerciseId: string,
+): Promise<{ entry: EntryRecord; workout: WorkoutRecord }[]> {
+  const entries = (await db.entries.toArray()).filter((e) => !e.deleted && e.exerciseId === exerciseId);
+  const workouts = await db.workouts.bulkGet(entries.map((e) => e.workoutId));
+  return entries
+    .flatMap((entry, i) => {
+      const workout = workouts[i];
+      return workout && !workout.deleted ? [{ entry, workout }] : [];
+    })
+    .sort(
+      (a, b) =>
+        b.workout.date.localeCompare(a.workout.date) ||
+        b.workout.createdAt - a.workout.createdAt ||
+        a.entry.position - b.entry.position,
+    );
+}
+
+/** For each Exercise, the live Workouts with an Entry of it, each once. */
+export async function exerciseUses(db: JournalDb): Promise<Map<string, WorkoutRecord[]>> {
+  const entries = (await db.entries.toArray()).filter((e) => !e.deleted);
+  const workouts = await db.workouts.bulkGet(entries.map((e) => e.workoutId));
+  const uses = new Map<string, WorkoutRecord[]>();
+  entries.forEach((entry, i) => {
+    const workout = workouts[i];
+    if (!workout || workout.deleted) return;
+    const used = uses.get(entry.exerciseId) ?? [];
+    if (!used.some((w) => w.id === workout.id)) used.push(workout);
+    uses.set(entry.exerciseId, used);
+  });
+  return uses;
+}
+
 /** The Exercises used as a Substitute for this Exercise in live Workouts, most recently used first. */
 export async function previousSubstitutesFor(db: JournalDb, exerciseId: string): Promise<string[]> {
   // Only Substitutes are in this index.

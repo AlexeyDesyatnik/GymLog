@@ -1,4 +1,13 @@
-import { checkRpe, checkSetValues, exerciseNameKey, formatPlanLine, parsePlan, type PlanLine } from "@gymlog/shared";
+import {
+  checkRpe,
+  checkSetValues,
+  exerciseNameKey,
+  formatPlanLine,
+  formatPlanSets,
+  monthsBefore,
+  parsePlan,
+  type PlanLine,
+} from "@gymlog/shared";
 import type { EntryRecord, ExerciseRecord, LocalDate, SetRecord, SyncedRecord, WorkoutRecord } from "@gymlog/shared";
 import {
   entryView,
@@ -15,7 +24,9 @@ import {
   changeableEntry,
   changeablePerformedSet,
   changeableWorkout,
+  exerciseUses,
   liveEntriesOf,
+  liveEntriesOfExercise,
   liveSetsOf,
   liveSubstituteOf,
   liveWorkout,
@@ -139,10 +150,23 @@ export interface Journal {
    */
   substituteEntry(entryId: string, exerciseName: string): Promise<Entry>;
   /**
-   * Exercises to replace this Entry with, matching the typed text by any name: first those used
-   * before as a Substitute for its Exercise, most recently used first; never its own Exercise.
+   * Exercises matching the typed text by any name, ignoring case: first those used in Workouts
+   * dated within the last three months, by number of such Workouts, then those used earlier,
+   * each by most recent use; then those never used, by name.
    */
-  suggestSubstitutes(entryId: string, text: string): Promise<Exercise[]>;
+  suggestExercises(text: string, today: LocalDate): Promise<Exercise[]>;
+  /**
+   * Exercises to replace this Entry with, matching the typed text by any name: first those used
+   * before as a Substitute for its Exercise, most recently used first, then the others as
+   * suggestExercises ranks them; never its own Exercise.
+   */
+  suggestSubstitutes(entryId: string, text: string, today: LocalDate): Promise<Exercise[]>;
+  /**
+   * Numbers for a new Plan line of this Exercise, as Plan notation groups (number prefill): the
+   * Planned Sets of the most recent Workout by date whose Plan has it, with their Target RPEs;
+   * otherwise its most recent Performed Sets, weight and reps only; null when it has neither.
+   */
+  prefillNumbers(exerciseId: string): Promise<string | null>;
   /** Deletes an Entry added on the fly or a Substitute; its Sets go with it, hidden by the Entry's tombstone. */
   deleteEntry(entryId: string): Promise<void>;
   addPerformedSet(entryId: string, values: SetValues): Promise<PerformedSet>;
@@ -208,7 +232,9 @@ const CHANGES: {
   undoFinishing: true,
   addEntry: true,
   substituteEntry: true,
+  suggestExercises: false,
   suggestSubstitutes: false,
+  prefillNumbers: false,
   deleteEntry: true,
   addPerformedSet: true,
   confirmPlannedSet: true,
@@ -437,7 +463,15 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
       });
     },
 
-    async suggestSubstitutes(entryId, text) {
+    async suggestExercises(text, today) {
+      const key = exerciseNameKey(text);
+      const matching = (await db.exercises.toArray()).filter(
+        (e) => !e.deleted && e.nameKeys.some((name) => name.includes(key)),
+      );
+      return matching.sort(byUse(await exerciseUses(db), today)).map(toExercise);
+    },
+
+    async suggestSubstitutes(entryId, text, today) {
       const entry = await db.entries.get(entryId);
       if (!entry || entry.deleted) throw new RangeError(`No Entry ${entryId}`);
       const key = exerciseNameKey(text);
@@ -445,14 +479,27 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
         (e) => !e.deleted && e.id !== entry.exerciseId && e.nameKeys.some((name) => name.includes(key)),
       );
       const rank = new Map((await previousSubstitutesFor(db, entry.exerciseId)).map((id, i) => [id, i]));
-      // The rest go by name until suggestions are ranked by use.
+      const rest = byUse(await exerciseUses(db), today);
       return matching
-        .sort(
-          (a, b) =>
-            (rank.get(a.id) ?? rank.size) - (rank.get(b.id) ?? rank.size) ||
-            a.primaryName.localeCompare(b.primaryName, "ru"),
-        )
+        .sort((a, b) => (rank.get(a.id) ?? rank.size) - (rank.get(b.id) ?? rank.size) || rest(a, b))
         .map(toExercise);
+    },
+
+    async prefillNumbers(exerciseId) {
+      const entries = await liveEntriesOfExercise(db, exerciseId);
+      const sets = await liveSetsOf(db, entries.map(({ entry }) => entry.id));
+      /** These Sets of the most recent Entry that has any. */
+      const latest = (wanted: (set: SetRecord) => boolean) =>
+        entries
+          .map(({ entry }) => sets.filter((s) => s.entryId === entry.id && wanted(s)))
+          .find((found) => found.length > 0);
+      const planned = latest((s) => s.kind === "planned");
+      if (planned) return formatPlanSets(splitSets(planned).plannedSets);
+      // A Planned Set needs at least 1 rep, so a Set whose first repetition failed can't be one.
+      const performed = latest((s) => s.kind === "performed" && s.reps > 0);
+      // A Performed Set's RPE isn't a Target RPE.
+      if (performed) return formatPlanSets(performed.map((s) => ({ ...s, maxReps: null, targetRpe: null })));
+      return null;
     },
 
     async deleteEntry(entryId) {
@@ -608,6 +655,37 @@ function substituteOf(
 ): Exercise | null {
   const substitute = entries.find((e) => e.substitutesEntryId === entryId);
   return substitute ? exerciseByEntryId.get(substitute.id)! : null;
+}
+
+/** How far back a use of an Exercise counts as recent in suggestion ranking. */
+const RECENT_MONTHS = 3;
+
+/**
+ * Suggestion ranking: first Exercises used in Workouts dated within the last three months, by
+ * number of such Workouts, then older ones, each by most recent use; then those never used, by name.
+ */
+function byUse(uses: Map<string, WorkoutRecord[]>, today: LocalDate): (a: ExerciseRecord, b: ExerciseRecord) => number {
+  const recentSince = monthsBefore(today, RECENT_MONTHS);
+  const recentCount = (exerciseId: string) => (uses.get(exerciseId) ?? []).filter((w) => w.date >= recentSince).length;
+  const lastUse = (exerciseId: string) => (uses.get(exerciseId) ?? []).reduce(later, undefined);
+  return (a, b) =>
+    recentCount(b.id) - recentCount(a.id) ||
+    compareWorkoutOrder(lastUse(b.id), lastUse(a.id)) ||
+    a.primaryName.localeCompare(b.primaryName, "ru");
+}
+
+/**
+ * Workouts in the order of the list of Workouts, earliest first: by date, then by when each was
+ * created. No Workout at all comes before any.
+ */
+function compareWorkoutOrder(a: WorkoutRecord | undefined, b: WorkoutRecord | undefined): number {
+  if (!a || !b) return (a ? 1 : 0) - (b ? 1 : 0);
+  return a.date.localeCompare(b.date) || a.createdAt - b.createdAt;
+}
+
+/** The later of two Workouts in the order of the list of Workouts. */
+function later(a: WorkoutRecord | undefined, b: WorkoutRecord): WorkoutRecord {
+  return compareWorkoutOrder(a, b) > 0 ? a! : b;
 }
 
 function toWorkout(record: WorkoutRecord): Workout {

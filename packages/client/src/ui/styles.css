@@ -550,6 +550,11 @@ a.workout-link {
   gap: 10px;
 }
 
+/* A line of their own under the name field. */
+.add-entry-suggestions {
+  flex-basis: 100%;
+}
+
 .chip-button:focus-visible,
 .set-summary:focus-visible,
 .rpe-option:focus-visible,

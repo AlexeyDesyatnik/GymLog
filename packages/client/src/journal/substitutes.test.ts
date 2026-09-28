@@ -173,10 +173,30 @@ test("Exercises used before as a Substitute for this Exercise are suggested firs
   await journal.setPlan(today.id, "bench press 80x5x3");
   const bench = (await journal.getWorkout(today.id))!.entries[0]!;
 
-  const suggested = (await journal.suggestSubstitutes(bench.id, "")).map((e) => e.primaryName);
+  const suggested = (await journal.suggestSubstitutes(bench.id, "", localDate("2026-09-26"))).map((e) => e.primaryName);
 
   expect(suggested.slice(0, 2)).toEqual(["push-up", "dumbbell press"]);
   expect(new Set(suggested.slice(2))).toEqual(new Set(["machine press", "squat", "leg press"]));
+});
+
+test("after Exercises used before as a Substitute for this Exercise, the others are suggested as ranked by use", async () => {
+  const journal = freshJournal();
+  await substituteBenchPress(journal, "2026-09-14", "dumbbell press");
+  for (const [date, notation] of [
+    ["2026-01-10", "cable fly 20x12"],
+    ["2026-09-20", "push-up x15"],
+    ["2026-09-21", "push-up x15\nmachine press 60x10"],
+  ] as const) {
+    const workout = await journal.createWorkout(localDate(date));
+    await journal.setPlan(workout.id, notation);
+  }
+  const today = await journal.createWorkout(localDate("2026-09-26"));
+  await journal.setPlan(today.id, "bench press 80x5x3");
+  const bench = (await journal.getWorkout(today.id))!.entries[0]!;
+
+  const suggested = await journal.suggestSubstitutes(bench.id, "", localDate("2026-09-26"));
+
+  expect(suggested.map((e) => e.primaryName)).toEqual(["dumbbell press", "push-up", "machine press", "cable fly"]);
 });
 
 test("Substitute suggestions match the typed text in any case, and never offer the Entry's own Exercise", async () => {
@@ -186,7 +206,7 @@ test("Substitute suggestions match the typed text in any case, and never offer t
   await journal.setPlan(workout.id, "bench press 80x5x3\nleg press 150x10x3\npush-up x15x3");
   const bench = (await journal.getWorkout(workout.id))!.entries[0]!;
 
-  const suggested = await journal.suggestSubstitutes(bench.id, "PRESS");
+  const suggested = await journal.suggestSubstitutes(bench.id, "PRESS", localDate("2026-09-26"));
 
   expect(suggested.map((e) => e.primaryName)).toEqual(["Dumbbell Press", "leg press"]);
 });

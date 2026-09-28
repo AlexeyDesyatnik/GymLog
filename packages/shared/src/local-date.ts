@@ -21,6 +21,13 @@ export function localDateOf(date: Date): LocalDate {
   return localDate(`${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`);
 }
 
+/** The same day of the month that many months earlier, or that month's last day when it is shorter. */
+export function monthsBefore(date: LocalDate, months: number): LocalDate {
+  const [year, month, day] = date.split("-").map(Number) as [number, number, number];
+  const lastDay = new Date(year, month - 1 - months + 1, 0).getDate();
+  return localDateOf(new Date(year, month - 1 - months, Math.min(day, lastDay)));
+}
+
 /** Midnight of that date in the user's own time zone. */
 export function localDateToDate(date: LocalDate): Date {
   const [year, month, day] = date.split("-").map(Number) as [number, number, number];
