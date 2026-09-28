@@ -23,6 +23,8 @@ Before the first `npm run test:e2e`, install its browser once with `npx playwrig
 
 After changing the server's database schema (`packages/server/src/db/schema.ts`), write its migration with `npm run db:generate -w @gymlog/server`; the server applies migrations when it starts.
 
+The root `package.json` overrides the esbuild under `@esbuild-kit/core-utils`, which drizzle-kit still pulls in, to 0.25 or newer: the version it asks for, 0.18, has a known vulnerability (GHSA-67mh-4wv8-2f99, #33). Because of the override, `npm ls` marks that esbuild "invalid"; this is expected. Remove the override once drizzle-kit no longer depends on `@esbuild-kit/esm-loader`.
+
 ## Signing in for development
 
 On first launch the app asks to sign in, and Users come only from an Invite (ADR 0007). To set up the Owner, run
