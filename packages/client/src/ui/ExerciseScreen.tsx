@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { HasHistoryRefusal, NameTakenRefusal, type CatalogExercise, type Journal } from "../journal/journal.ts";
+import { ConfirmDelete } from "./ConfirmDelete.tsx";
 import { formatRecordedIn, formatWorkoutUse } from "./format.ts";
 import { useCatalog } from "./useCatalog.ts";
 import { exerciseHref, exercisesHref } from "./useRoute.ts";
@@ -147,8 +148,12 @@ function PrimaryNameForm({ journal, exercise, onChange }: SectionProps) {
 }
 
 function AlternativeNames({ journal, exercise, onChange }: SectionProps) {
+  /** The name whose removal is being confirmed. */
+  const [removing, setRemoving] = useState<string | null>(null);
+
   async function remove(alternativeName: string) {
     await journal.removeAlternativeName(exercise.id, alternativeName);
+    setRemoving(null);
     onChange();
   }
 
@@ -158,19 +163,29 @@ function AlternativeNames({ journal, exercise, onChange }: SectionProps) {
       <p className="hint">По ним упражнение находится, например, на другом языке.</p>
       {exercise.alternativeNames.length > 0 ? (
         <ul className="alternative-names">
-          {exercise.alternativeNames.map((alternativeName) => (
-            <li key={alternativeName} className="alternative-name">
-              <span>{alternativeName}</span>
-              <button
-                className="button quiet danger-text"
-                type="button"
-                onClick={() => void remove(alternativeName)}
-                aria-label={`Убрать название ${alternativeName}`}
-              >
-                Убрать
-              </button>
-            </li>
-          ))}
+          {exercise.alternativeNames.map((alternativeName) =>
+            alternativeName === removing ? (
+              <ConfirmDelete
+                key={alternativeName}
+                className="alternative-name"
+                question={`Удалить название «${alternativeName}»? Упражнение перестанет по нему находиться.`}
+                onDelete={() => remove(alternativeName)}
+                onCancel={() => setRemoving(null)}
+              />
+            ) : (
+              <li key={alternativeName} className="alternative-name">
+                <span>{alternativeName}</span>
+                <button
+                  className="button quiet danger-text"
+                  type="button"
+                  onClick={() => setRemoving(alternativeName)}
+                  aria-label={`Удалить название ${alternativeName}`}
+                >
+                  Удалить
+                </button>
+              </li>
+            ),
+          )}
         </ul>
       ) : null}
       <NameForm

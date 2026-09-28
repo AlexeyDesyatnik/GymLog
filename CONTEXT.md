@@ -35,7 +35,7 @@ An Entry performed instead of a whole planned Entry of a different Exercise. The
 _Avoid_: Swap, alternative
 
 **Finished** (завершена):
-The state of a Workout the user has declared fully recorded. A Workout is either Finished or not; there are no separate planned or in-progress states. A Finished Workout is read-only; finishing can be undone, and that is the only way to change it.
+The state of a Workout the user has declared fully recorded. A Workout is either Finished or not; there are no separate planned or in-progress states. A Finished Workout is read-only; finishing can be undone, and that is the only way to change it. A Merge still reaches it, since it changes which Exercise an Entry is of, not what was recorded.
 _Avoid_: Closed, completed
 
 **Not performed** (не выполнен):
@@ -105,7 +105,7 @@ Common Exercises, each with an English Primary name and a Russian Alternative na
 _Avoid_: Default exercises, presets
 
 **Merge** (объединение):
-Combining two Exercises that turned out to be the same one into a single Exercise with their joint history. The target keeps its Primary name; the other's names become Alternative names. Cannot be undone.
+Combining two Exercises that turned out to be the same one into a single Exercise with their joint history. Every Entry of the other becomes the target's, in Finished Workouts too. The target keeps its Primary name; the other's names become Alternative names. Cannot be undone.
 _Avoid_: Link, deduplicate
 
 ### Users
