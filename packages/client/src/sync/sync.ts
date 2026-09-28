@@ -7,7 +7,7 @@ import {
   type SessionAnswer,
   type SyncedRecord,
 } from "@gymlog/shared";
-import { recordTable, writeAsSync, type JournalDb, type Unsynced } from "../journal/store.ts";
+import { followMerges, recordTable, writeAsSync, type JournalDb, type Unsynced } from "../journal/store.ts";
 import { serverApi, SignedOut } from "./api.ts";
 
 /** Where this device stands with sync. */
@@ -105,6 +105,8 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
       if ((await claim(userId)) !== userId) return setState({ status: "otherUser" });
       await push(userId);
       await pull(userId);
+      // An Entry that arrived on an Exercise merged away moves to where it was merged; that goes out at once.
+      if (await followMerges(db)) await push(userId);
       setState({ status: "synced", owner });
     } catch (error) {
       // A device nobody has signed in on waits for its first sign-in, reachable or not. A store

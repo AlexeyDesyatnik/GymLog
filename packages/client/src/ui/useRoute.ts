@@ -3,6 +3,9 @@ import { useEffect, useState } from "react";
 export type Route =
   | { screen: "workouts" }
   | { screen: "workout"; workoutId: string }
+  /** The Exercise catalog. */
+  | { screen: "exercises" }
+  | { screen: "exercise"; exerciseId: string }
   /** Using an Invite opened from its link to become a User. */
   | { screen: "signUp"; invite: string }
   /** Setting a new password through a Reset link. */
@@ -27,6 +30,12 @@ export function workoutHref(workoutId: string): string {
 
 export const workoutsHref = "#/";
 
+export const exercisesHref = "#/exercises";
+
+export function exerciseHref(exerciseId: string): string {
+  return `#/exercise/${exerciseId}`;
+}
+
 /** The link of an Invite, to send to the person invited. */
 export function inviteLink(invite: string): string {
   return new URL(`#/invite/${invite}`, window.location.href).href;
@@ -40,6 +49,9 @@ export function resetLinkUrl(resetLink: string): string {
 function parse(hash: string): Route {
   const workout = /^#\/workout\/([^/]+)$/.exec(hash);
   if (workout) return { screen: "workout", workoutId: decodeURIComponent(workout[1]!) };
+  if (hash === exercisesHref) return { screen: "exercises" };
+  const exercise = /^#\/exercise\/([^/]+)$/.exec(hash);
+  if (exercise) return { screen: "exercise", exerciseId: decodeURIComponent(exercise[1]!) };
   const invite = /^#\/invite\/([^/]+)$/.exec(hash);
   if (invite) return { screen: "signUp", invite: decodeURIComponent(invite[1]!) };
   const resetLink = /^#\/reset\/([^/]+)$/.exec(hash);

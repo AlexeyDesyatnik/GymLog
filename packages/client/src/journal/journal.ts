@@ -27,6 +27,7 @@ import {
   exercisesMatching,
   exerciseUses,
   liveEntriesOf,
+  liveExercise,
   liveSetsOf,
   liveSubstituteOf,
   liveWorkout,
@@ -55,6 +56,13 @@ export interface WorkoutSummary extends Workout {
 export interface Exercise {
   id: string;
   primaryName: string;
+}
+
+/** An Exercise as the Exercise catalog shows it. */
+export interface CatalogExercise extends Exercise {
+  alternativeNames: string[];
+  /** The live Workouts with an Entry of it; an Exercise used in any has history. */
+  workoutCount: number;
 }
 
 export interface PerformedSet {
@@ -124,7 +132,7 @@ export interface WorkoutWithEntries extends Workout {
 /**
  * The single interface the UI uses for everything a user does with their Workouts. A change
  * that fails, whether the store can't carry it out or the Journal refuses it, rejects with
- * ChangeNotSaved; the one exception is OwnExerciseRefusal.
+ * ChangeNotSaved; the exceptions are the Refusals the UI can't foresee.
  */
 export interface Journal {
   /** The state of the local store on this device; calls wait while it is opening or blocked. */
@@ -162,6 +170,30 @@ export interface Journal {
    * suggestExercises ranks them; never its own Exercise under any of its names.
    */
   suggestSubstitutes(entryId: string, text: string, today: LocalDate): Promise<Exercise[]>;
+  /**
+   * The Exercise catalog, by Primary name; with text, only the Exercises with a name in which it
+   * starts a word, ignoring case, as suggestExercises matches them.
+   */
+  listExercises(text?: string): Promise<CatalogExercise[]>;
+  /**
+   * Gives the Exercise a new Primary name; the old one stays as an Alternative name, so it still
+   * finds it. Refused with NameTakenRefusal when the name is another Exercise's.
+   */
+  renameExercise(id: string, primaryName: string): Promise<void>;
+  /** Adds a name the Exercise is also found by. Refused with NameTakenRefusal when it is another Exercise's name. */
+  addAlternativeName(id: string, name: string): Promise<void>;
+  /** Removes an Alternative name, matched ignoring case; the Exercise is no longer found by it. */
+  removeAlternativeName(id: string, name: string): Promise<void>;
+  /**
+   * Merges one Exercise into the target: every Entry of it moves to the target, which keeps
+   * its Primary name, and its names become the target's Alternative names. Cannot be undone.
+   */
+  mergeExercises(mergedId: string, targetId: string): Promise<void>;
+  /**
+   * Deletes an Exercise with no history: no live Entry of a live Workout is of it. Refused
+   * with HasHistoryRefusal otherwise; such an Exercise can only be merged into another.
+   */
+  deleteExercise(id: string): Promise<void>;
   /** Deletes an Entry added on the fly or a Substitute; its Sets go with it, hidden by the Entry's tombstone. */
   deleteEntry(entryId: string): Promise<void>;
   addPerformedSet(entryId: string, values: SetValues): Promise<PerformedSet>;
@@ -191,13 +223,41 @@ export interface Journal {
 }
 
 /**
- * Substituting an Entry by its own Exercise, however it is typed. The one refusal the UI
- * can't foresee, since only the Journal knows every name of an Exercise.
+ * A change the Journal refuses that the UI can't foresee, since only the Journal knows every
+ * name of every Exercise and every use of one. It rejects as itself, not as ChangeNotSaved.
  */
-export class OwnExerciseRefusal extends RangeError {
+export class Refusal extends RangeError {}
+
+/** Substituting an Entry by its own Exercise, however it is typed. */
+export class OwnExerciseRefusal extends Refusal {
   constructor() {
     super("A Substitute is of another Exercise");
     this.name = "OwnExerciseRefusal";
+  }
+}
+
+/** A name already belongs to another Exercise, ignoring case: within a catalog, a name belongs to at most one. */
+export class NameTakenRefusal extends Refusal {
+  constructor(
+    /** The name as it was given. */
+    readonly takenName: string,
+    /** The Exercise it belongs to. */
+    readonly holder: Exercise,
+  ) {
+    super(`"${takenName}" is a name of the Exercise ${holder.primaryName}`);
+    this.name = "NameTakenRefusal";
+  }
+}
+
+/** Deleting an Exercise with history, which would lose its Sets; it can be merged into another instead. */
+export class HasHistoryRefusal extends Refusal {
+  constructor(
+    readonly exercise: Exercise,
+    /** The live Workouts with an Entry of it. */
+    readonly workoutCount: number,
+  ) {
+    super(`The Exercise ${exercise.primaryName} is used in ${workoutCount} Workouts`);
+    this.name = "HasHistoryRefusal";
   }
 }
 
@@ -229,6 +289,12 @@ const CHANGES: {
   substituteEntry: true,
   suggestExercises: false,
   suggestSubstitutes: false,
+  listExercises: false,
+  renameExercise: true,
+  addAlternativeName: true,
+  removeAlternativeName: true,
+  mergeExercises: true,
+  deleteExercise: true,
   deleteEntry: true,
   addPerformedSet: true,
   confirmPlannedSet: true,
@@ -255,7 +321,7 @@ function reportingChanges(journal: Journal, onSaved: () => void): Journal {
           return result;
         },
         (error: unknown) => {
-          throw error instanceof OwnExerciseRefusal ? error : new ChangeNotSaved(error);
+          throw error instanceof Refusal ? error : new ChangeNotSaved(error);
         },
       );
   }
@@ -303,6 +369,22 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
     const created: ExerciseRecord = { ...newRecord(), primaryName: name.trim(), alternativeNames: [], nameKeys: [key] };
     await db.exercises.add(created);
     return created;
+  }
+
+  /**
+   * The key of a name the Exercise can take: not blank, and no other live Exercise's name.
+   * Refused with NameTakenRefusal otherwise.
+   */
+  async function freeNameKey(name: string, exerciseId: string): Promise<string> {
+    const key = exerciseNameKey(name);
+    if (!key) throw new RangeError("An Exercise's name can't be blank");
+    const holder = await db.exercises
+      .where("nameKeys")
+      .equals(key)
+      .filter((e) => !e.deleted && e.id !== exerciseId)
+      .first();
+    if (holder) throw new NameTakenRefusal(name.trim(), toExercise(holder));
+    return key;
   }
 
   /** Adds a Performed Set after the Entry's other Sets; call it inside a transaction on the Sets. */
@@ -475,6 +557,76 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
       return oncePerName(
         matching.sort((a, b) => (rank.get(a.id) ?? rank.size) - (rank.get(b.id) ?? rank.size) || rankByUse(a, b)),
       ).map(toExercise);
+    },
+
+    async listExercises(text = "") {
+      const uses = await exerciseUses(db);
+      return (await exercisesMatching(db, text)).sort(byPrimaryName).map((e) => ({
+        ...toExercise(e),
+        alternativeNames: e.alternativeNames,
+        workoutCount: uses.get(e.id)?.length ?? 0,
+      }));
+    },
+
+    async renameExercise(id, primaryName) {
+      await db.transaction("rw", db.exercises, async () => {
+        const exercise = await liveExercise(db, id);
+        const key = await freeNameKey(primaryName, id);
+        // The new name leaves the Alternative names, and the old one joins them unless it is the same name.
+        const alternativeNames = [...exercise.alternativeNames, exercise.primaryName].filter(
+          (name) => exerciseNameKey(name) !== key,
+        );
+        await db.exercises.update(id, { ...withNames(primaryName.trim(), alternativeNames), updatedAt: now() });
+      });
+    },
+
+    async addAlternativeName(id, name) {
+      await db.transaction("rw", db.exercises, async () => {
+        const exercise = await liveExercise(db, id);
+        const key = await freeNameKey(name, id);
+        // Already one of its names: nothing to add.
+        if (exercise.nameKeys.includes(key)) return;
+        const names = withNames(exercise.primaryName, [...exercise.alternativeNames, name.trim()]);
+        await db.exercises.update(id, { ...names, updatedAt: now() });
+      });
+    },
+
+    async removeAlternativeName(id, name) {
+      await db.transaction("rw", db.exercises, async () => {
+        const exercise = await liveExercise(db, id);
+        const key = exerciseNameKey(name);
+        const alternativeNames = exercise.alternativeNames.filter((n) => exerciseNameKey(n) !== key);
+        if (alternativeNames.length === exercise.alternativeNames.length) return;
+        await db.exercises.update(id, { ...withNames(exercise.primaryName, alternativeNames), updatedAt: now() });
+      });
+    },
+
+    async mergeExercises(mergedId, targetId) {
+      if (mergedId === targetId) throw new RangeError("An Exercise is merged into another one");
+      await db.transaction("rw", [db.exercises, db.entries], async () => {
+        const merged = await liveExercise(db, mergedId);
+        const target = await liveExercise(db, targetId);
+        const time = now();
+        // In Finished Workouts too: a Merge changes which Exercise it is, not what was recorded.
+        const entries = await db.entries.filter((e) => e.exerciseId === mergedId && !e.deleted).toArray();
+        for (const entry of entries) await db.entries.update(entry.id, { exerciseId: targetId, updatedAt: time });
+        // Two devices that each made an Exercise of one name before they synced share that name.
+        const newNames = [merged.primaryName, ...merged.alternativeNames].filter(
+          (name) => !target.nameKeys.includes(exerciseNameKey(name)),
+        );
+        const names = withNames(target.primaryName, [...target.alternativeNames, ...newNames]);
+        await db.exercises.update(targetId, { ...names, updatedAt: time });
+        await db.exercises.update(mergedId, { deleted: true, mergedIntoId: targetId, updatedAt: time });
+      });
+    },
+
+    async deleteExercise(id) {
+      await db.transaction("rw", [db.workouts, db.exercises, db.entries], async () => {
+        const exercise = await liveExercise(db, id);
+        const workoutCount = (await exerciseUses(db)).get(id)?.length ?? 0;
+        if (workoutCount > 0) throw new HasHistoryRefusal(toExercise(exercise), workoutCount);
+        await db.exercises.update(id, { deleted: true, updatedAt: now() });
+      });
     },
 
     async deleteEntry(entryId) {
@@ -665,7 +817,20 @@ function byUse(uses: Map<string, WorkoutRecord[]>, today: LocalDate): (a: Exerci
   return (a, b) =>
     recentCount(b.id) - recentCount(a.id) ||
     byLastUse(lastUse(a.id), lastUse(b.id)) ||
-    a.primaryName.localeCompare(b.primaryName, "ru");
+    byPrimaryName(a, b);
+}
+
+/** Exercises in the order of their Primary names, Russian ones first. */
+function byPrimaryName(a: ExerciseRecord, b: ExerciseRecord): number {
+  return a.primaryName.localeCompare(b.primaryName, "ru");
+}
+
+/** An Exercise's names, with the keys it is found by. */
+function withNames(
+  primaryName: string,
+  alternativeNames: string[],
+): Pick<ExerciseRecord, "primaryName" | "alternativeNames" | "nameKeys"> {
+  return { primaryName, alternativeNames, nameKeys: [primaryName, ...alternativeNames].map(exerciseNameKey) };
 }
 
 function toWorkout(record: WorkoutRecord): Workout {

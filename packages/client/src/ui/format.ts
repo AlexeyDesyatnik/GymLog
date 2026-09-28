@@ -17,3 +17,13 @@ const plural = new Intl.PluralRules("ru-RU");
 export function formatSetCount(count: number): string {
   return `${count} ${setWords[plural.select(count)]}`;
 }
+
+/** "в 1 тренировке", "в 3 тренировках". */
+export function formatWorkoutUse(count: number): string {
+  return `в ${count} ${plural.select(count) === "one" ? "тренировке" : "тренировках"}`;
+}
+
+/** "записано в 3 тренировках", or "не записано" for an Exercise with no history. */
+export function formatRecordedIn(count: number): string {
+  return count > 0 ? `записано ${formatWorkoutUse(count)}` : "не записано";
+}

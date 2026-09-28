@@ -160,6 +160,42 @@ export async function changeablePerformedSet(db: JournalDb, id: string): Promise
   return set;
 }
 
+/** The Exercise, if it is live. */
+export async function liveExercise(db: JournalDb, id: string): Promise<ExerciseRecord> {
+  const exercise = await db.exercises.get(id);
+  if (!exercise || exercise.deleted) throw new RangeError(`No Exercise ${id}`);
+  return exercise;
+}
+
+/**
+ * Moves each live Entry of an Exercise merged away to the Exercise it was merged into. An Entry
+ * recorded on a device that hadn't heard of the Merge yet arrives on the merged Exercise; this is
+ * a change of the Entry here, sent on like any other. Returns whether any Entry moved.
+ */
+export async function followMerges(db: JournalDb): Promise<boolean> {
+  return db.transaction("rw", [db.exercises, db.entries], async () => {
+    const exercises = new Map((await db.exercises.toArray()).map((e) => [e.id, e]));
+    /** The live Exercise this one ended up in, or undefined when it is live itself or was simply deleted. */
+    const survivor = (id: string): string | undefined => {
+      let exercise = exercises.get(id);
+      // A merged Exercise's target may have been merged in turn; ids can't loop, but a bound costs nothing.
+      for (let hops = 0; exercise?.mergedIntoId && hops < exercises.size; hops++) {
+        exercise = exercises.get(exercise.mergedIntoId);
+        if (exercise && !exercise.deleted) return exercise.id;
+      }
+      return undefined;
+    };
+    let moved = false;
+    for (const entry of await db.entries.filter((e) => !e.deleted).toArray()) {
+      const target = survivor(entry.exerciseId);
+      if (!target) continue;
+      await db.entries.update(entry.id, { exerciseId: target });
+      moved = true;
+    }
+    return moved;
+  });
+}
+
 /** The live Entries of these Workouts, in Entry order. */
 export async function liveEntriesOf(db: JournalDb, workoutIds: string[]): Promise<EntryRecord[]> {
   return (await db.entries.where("workoutId").anyOf(workoutIds).toArray())

@@ -935,3 +935,156 @@ a.workout-link:focus-visible {
   border: 1px solid var(--line);
   border-radius: 8px;
 }
+
+/* Exercise catalog */
+
+.page-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.head-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  padding-block: 6px;
+}
+
+input[type="search"] {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.catalog {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+a.catalog-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 44px;
+  padding: 10px 14px;
+  color: inherit;
+  text-decoration: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.catalog-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.catalog-alternatives {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.catalog-use {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.exercise-title {
+  overflow-wrap: anywhere;
+}
+
+.exercise-title + .hint {
+  margin-top: -14px;
+}
+
+.catalog-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.catalog-section h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.alternative-names {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.alternative-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding-left: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.alternative-name + .alternative-name {
+  margin-top: 4px;
+}
+
+.merge-choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-block: 6px;
+}
+
+.merge-choice-names {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.merge-choice-use {
+  flex-shrink: 0;
+}
+
+/* Merge and delete can't be undone: the question stands out like a deletion in a list. */
+.confirm-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: 12px;
+}
+
+.confirm-detail {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.refusal {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--danger-soft);
+  border-radius: 10px;
+}
+
+.head-link:focus-visible,
+a.catalog-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

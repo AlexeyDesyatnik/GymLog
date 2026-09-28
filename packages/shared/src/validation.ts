@@ -74,7 +74,7 @@ const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The fields each type of record may have, beyond its type and owner; the others are refused. */
 const FIELDS: Record<RecordType, readonly string[]> = {
   workout: ["id", "updatedAt", "deleted", "date", "createdAt", "finished"],
-  exercise: ["id", "updatedAt", "deleted", "primaryName", "alternativeNames", "nameKeys"],
+  exercise: ["id", "updatedAt", "deleted", "primaryName", "alternativeNames", "nameKeys", "mergedIntoId"],
   entry: ["id", "updatedAt", "deleted", "workoutId", "exerciseId", "position", "substitutesEntryId"],
   set: ["id", "updatedAt", "deleted", "entryId", "kind", "position", "weight", "reps", "rpe", "comment", "maxReps"],
 };
@@ -111,6 +111,7 @@ export function checkSyncRecord(value: unknown): SyncRecord {
       );
       mustBeStrings(record.alternativeNames, "alternativeNames");
       mustBeStrings(record.nameKeys, "nameKeys");
+      if (record.mergedIntoId !== undefined) mustBeId(record.mergedIntoId, "mergedIntoId");
       break;
     case "entry":
       mustBeId(record.workoutId, "workoutId");

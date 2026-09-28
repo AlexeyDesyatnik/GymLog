@@ -1,5 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ChangeNotSaved, type Journal } from "../journal/journal.ts";
+import { ExerciseCatalogScreen } from "./ExerciseCatalogScreen.tsx";
+import { ExerciseScreen } from "./ExerciseScreen.tsx";
 import { ResetLinkScreen, SignInScreen, SignUpScreen } from "./SignIn.tsx";
 import { StoreProblem, type StoreProblemState } from "./StoreProblem.tsx";
 import { useRoute } from "./useRoute.ts";
@@ -33,11 +35,14 @@ export function App({ journal }: { journal: Journal }) {
     return <ResetLinkScreen journal={journal} resetLink={route.resetLink} firstLaunch={firstLaunch} />;
   }
   if (firstLaunch) return <SignInScreen journal={journal} />;
-  return route.screen === "workout" ? (
-    <WorkoutScreen key={route.workoutId} journal={journal} workoutId={route.workoutId} today={today} />
-  ) : (
-    <WorkoutListScreen journal={journal} today={today} />
-  );
+  if (route.screen === "workout") {
+    return <WorkoutScreen key={route.workoutId} journal={journal} workoutId={route.workoutId} today={today} />;
+  }
+  if (route.screen === "exercises") return <ExerciseCatalogScreen journal={journal} />;
+  if (route.screen === "exercise") {
+    return <ExerciseScreen key={route.exerciseId} journal={journal} exerciseId={route.exerciseId} />;
+  }
+  return <WorkoutListScreen journal={journal} today={today} />;
 }
 
 /**

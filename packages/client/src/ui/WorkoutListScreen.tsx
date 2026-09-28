@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { localDate, localDateOf, type LocalDate } from "@gymlog/shared";
 import type { Journal, WorkoutSummary } from "../journal/journal.ts";
 import { SyncStatus } from "./SyncStatus.tsx";
+import { exercisesHref } from "./useRoute.ts";
 import { WorkoutRow } from "./WorkoutRow.tsx";
 
 export function WorkoutListScreen({ journal, today }: { journal: Journal; today: LocalDate }) {
@@ -31,7 +32,12 @@ export function WorkoutListScreen({ journal, today }: { journal: Journal; today:
 
   return (
     <main className="page">
-      <h1>Тренировки</h1>
+      <div className="page-head">
+        <h1>Тренировки</h1>
+        <a className="head-link" href={exercisesHref}>
+          Упражнения
+        </a>
+      </div>
 
       <form className="create" onSubmit={create}>
         <label className="field">

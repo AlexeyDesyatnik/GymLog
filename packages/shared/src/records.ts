@@ -25,6 +25,8 @@ export interface ExerciseRecord extends SyncedRecord {
   alternativeNames: string[];
   /** The Primary and Alternative names, normalised for lookup (see exerciseNameKey). */
   nameKeys: string[];
+  /** On an Exercise deleted by a Merge, the Exercise it was merged into; missing on any other. */
+  mergedIntoId?: string;
 }
 
 export interface EntryRecord extends SyncedRecord {
