@@ -191,20 +191,6 @@ async function withLiveWorkouts(
   });
 }
 
-/**
- * The live Entries of this Exercise in live Workouts, each with its Workout: the most recent
- * Workout first, and in the order of Entries within one Workout.
- */
-export async function liveEntriesOfExercise(
-  db: JournalDb,
-  exerciseId: string,
-): Promise<{ entry: EntryRecord; workout: WorkoutRecord }[]> {
-  const entries = (await db.entries.toArray()).filter((e) => e.exerciseId === exerciseId);
-  return (await withLiveWorkouts(db, entries)).sort(
-    (a, b) => compareWorkoutOrder(b.workout, a.workout) || a.entry.position - b.entry.position,
-  );
-}
-
 /** For each Exercise, the live Workouts with an Entry of it, each once. */
 export async function exerciseUses(db: JournalDb): Promise<Map<string, WorkoutRecord[]>> {
   const uses = new Map<string, WorkoutRecord[]>();
@@ -216,10 +202,14 @@ export async function exerciseUses(db: JournalDb): Promise<Map<string, WorkoutRe
   return uses;
 }
 
-/** The live Exercises with a name that contains the typed text, ignoring case. */
+/**
+ * The live Exercises with a name in which the typed text starts a word, ignoring case: "be" finds
+ * bench press and close-grip bench press, but not barbell row.
+ */
 export async function exercisesMatching(db: JournalDb, text: string): Promise<ExerciseRecord[]> {
   const key = exerciseNameKey(text);
-  return (await db.exercises.toArray()).filter((e) => !e.deleted && e.nameKeys.some((name) => name.includes(key)));
+  const startsWord = (name: string) => name.startsWith(key) || name.includes(` ${key}`) || name.includes(`-${key}`);
+  return (await db.exercises.toArray()).filter((e) => !e.deleted && e.nameKeys.some(startsWord));
 }
 
 /** The Exercises used as a Substitute for this Exercise in live Workouts, most recently used first. */

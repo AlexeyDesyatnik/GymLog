@@ -82,10 +82,12 @@ export function PlanEditor({ journal, workoutId, today, draft, focusOnOpen, onCl
     savePlanDraft(workoutId, { notation: value, basedOn: draft.basedOn });
   }
 
-  /** Puts the picked Exercise's Primary name in place of the typed one, followed by last time's numbers. */
-  async function pick(exercise: Exercise) {
-    const numbers = await journal.prefillNumbers(workoutId, exercise.id);
-    const line = numbers === null ? `${exercise.primaryName} ` : `${exercise.primaryName} ${numbers}`;
+  /**
+   * Puts the picked Exercise's Primary name in place of the typed one, ready for the numbers. They
+   * aren't filled in: with periodization the same Exercise has other numbers every time.
+   */
+  function pick(exercise: Exercise) {
+    const line = `${exercise.primaryName} `;
     const position = caretLine.start + line.length;
     caretAfterPick.current = position;
     setCaret(position);
@@ -131,7 +133,7 @@ export function PlanEditor({ journal, workoutId, today, draft, focusOnOpen, onCl
         />
       </label>
 
-      <SuggestionList suggestions={suggestions} onPick={(exercise) => void pick(exercise)} keepFocus />
+      <SuggestionList suggestions={suggestions} onPick={pick} keepFocus />
 
       {readings.length > 0 ? (
         <ul className="plan-lines">

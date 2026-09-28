@@ -52,6 +52,21 @@ test("Exercises used only before the last three months come after the recent one
   expect(await suggested(journal, "")).toEqual(["bench press", "deadlift", "squat"]);
 });
 
+test("the text matches a name from the start of any of its words, never from inside a word", async () => {
+  const journal = freshJournal();
+  await planned(
+    journal,
+    "2026-09-21",
+    "barbell row 60x8\nbench press 80x5\nclose-grip bench press 70x8\nbelt squat 100x10\nt-bar row 50x10",
+  );
+
+  expect(new Set(await suggested(journal, "Be"))).toEqual(
+    new Set(["bench press", "close-grip bench press", "belt squat"]),
+  );
+  expect(new Set(await suggested(journal, "bar row"))).toEqual(new Set(["t-bar row"]));
+  expect(new Set(await suggested(journal, "grip"))).toEqual(new Set(["close-grip bench press"]));
+});
+
 test("Workouts planned for after today don't count as uses of their Exercises", async () => {
   const journal = freshJournal();
   await planned(journal, "2026-09-10", "bench press 80x5");

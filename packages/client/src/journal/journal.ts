@@ -3,7 +3,6 @@ import {
   checkSetValues,
   exerciseNameKey,
   formatPlanLine,
-  formatPlanSets,
   monthsBefore,
   parsePlan,
   type PlanLine,
@@ -28,7 +27,6 @@ import {
   exercisesMatching,
   exerciseUses,
   liveEntriesOf,
-  liveEntriesOfExercise,
   liveSetsOf,
   liveSubstituteOf,
   liveWorkout,
@@ -152,24 +150,18 @@ export interface Journal {
    */
   substituteEntry(entryId: string, exerciseName: string): Promise<Entry>;
   /**
-   * Exercises matching the typed text by any name, ignoring case: first those used in Workouts
-   * dated within the last three months up to today, by number of such Workouts, then those used
-   * earlier, each by most recent use; then those never used, by name.
+   * Exercises with a name, of any of theirs, in which the typed text starts a word, ignoring case:
+   * first those used in Workouts dated within the last three months up to today, by number of
+   * such Workouts, then those used earlier, each by most recent use; then those never used, by
+   * name. Each name comes once. Only names are suggested; the numbers are the user's to type.
    */
   suggestExercises(text: string, today: LocalDate): Promise<Exercise[]>;
   /**
-   * Exercises to replace this Entry with, matching the typed text by any name: first those used
-   * before as a Substitute for its Exercise, most recently used first, then the others as
-   * suggestExercises ranks them; never its own Exercise.
+   * Exercises to replace this Entry with, matched like suggestExercises: first those used before
+   * as a Substitute for its Exercise, most recently used first, then the others as
+   * suggestExercises ranks them; never its own Exercise under any of its names.
    */
   suggestSubstitutes(entryId: string, text: string, today: LocalDate): Promise<Exercise[]>;
-  /**
-   * Numbers for a new line of this Exercise in the Workout's Plan, as Plan notation groups (number
-   * prefill), from the Workouts before it: the Planned Sets of the most recent one whose Plan has
-   * the Exercise, with their Target RPEs; otherwise its most recent Performed Sets, weight and reps
-   * only; null when it has neither.
-   */
-  prefillNumbers(workoutId: string, exerciseId: string): Promise<string | null>;
   /** Deletes an Entry added on the fly or a Substitute; its Sets go with it, hidden by the Entry's tombstone. */
   deleteEntry(entryId: string): Promise<void>;
   addPerformedSet(entryId: string, values: SetValues): Promise<PerformedSet>;
@@ -237,7 +229,6 @@ const CHANGES: {
   substituteEntry: true,
   suggestExercises: false,
   suggestSubstitutes: false,
-  prefillNumbers: false,
   deleteEntry: true,
   addPerformedSet: true,
   confirmPlannedSet: true,
@@ -468,39 +459,22 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
 
     async suggestExercises(text, today) {
       const matching = await exercisesMatching(db, text);
-      return matching.sort(byUse(await exerciseUses(db), today)).map(toExercise);
+      return oncePerName(matching.sort(byUse(await exerciseUses(db), today))).map(toExercise);
     },
 
     async suggestSubstitutes(entryId, text, today) {
       const entry = await db.entries.get(entryId);
       if (!entry || entry.deleted) throw new RangeError(`No Entry ${entryId}`);
-      const matching = (await exercisesMatching(db, text)).filter((e) => e.id !== entry.exerciseId);
+      const own = (await db.exercises.get(entry.exerciseId))!;
+      // Nor any other Exercise of one of its names, which substituting would take for its own.
+      const matching = (await exercisesMatching(db, text)).filter(
+        (e) => !e.nameKeys.some((name) => own.nameKeys.includes(name)),
+      );
       const rank = new Map((await previousSubstitutesFor(db, entry.exerciseId)).map((id, i) => [id, i]));
       const rankByUse = byUse(await exerciseUses(db), today);
-      return matching
-        .sort((a, b) => (rank.get(a.id) ?? rank.size) - (rank.get(b.id) ?? rank.size) || rankByUse(a, b))
-        .map(toExercise);
-    },
-
-    async prefillNumbers(workoutId, exerciseId) {
-      const planning = await liveWorkout(db, workoutId);
-      // Last time is before this Workout: not its own Plan, nor a Plan made ahead for after it.
-      const entries = (await liveEntriesOfExercise(db, exerciseId)).filter(
-        ({ workout }) => compareWorkoutOrder(workout, planning) < 0,
-      );
-      const sets = await liveSetsOf(db, entries.map(({ entry }) => entry.id));
-      /** These Sets of the most recent Entry that has any. */
-      const latest = (wanted: (set: SetRecord) => boolean) =>
-        entries
-          .map(({ entry }) => sets.filter((s) => s.entryId === entry.id && wanted(s)))
-          .find((found) => found.length > 0);
-      const planned = latest((s) => s.kind === "planned");
-      if (planned) return formatPlanSets(splitSets(planned).plannedSets);
-      // A Planned Set needs at least 1 rep, so a Set whose first repetition failed can't be one.
-      const performed = latest((s) => s.kind === "performed" && s.reps > 0);
-      // A Performed Set's RPE isn't a Target RPE.
-      if (performed) return formatPlanSets(performed.map((s) => ({ ...s, maxReps: null, targetRpe: null })));
-      return null;
+      return oncePerName(
+        matching.sort((a, b) => (rank.get(a.id) ?? rank.size) - (rank.get(b.id) ?? rank.size) || rankByUse(a, b)),
+      ).map(toExercise);
     },
 
     async deleteEntry(entryId) {
@@ -656,6 +630,20 @@ function substituteOf(
 ): Exercise | null {
   const substitute = entries.find((e) => e.substitutesEntryId === entryId);
   return substitute ? exerciseByEntryId.get(substitute.id)! : null;
+}
+
+/**
+ * Each Primary name once, where it ranks best. Devices that made an Exercise of the same name
+ * before they synced each keep their own, but a suggestion is picked by its name.
+ */
+function oncePerName(ranked: ExerciseRecord[]): ExerciseRecord[] {
+  const seen = new Set<string>();
+  return ranked.filter((e) => {
+    const key = exerciseNameKey(e.primaryName);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /** How far back a use of an Exercise counts as recent in suggestion ranking. */
