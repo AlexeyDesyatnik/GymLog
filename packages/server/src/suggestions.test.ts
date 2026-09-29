@@ -6,7 +6,7 @@ const TODAY = localDate("2026-09-28");
 
 /**
  * The same user's phone and computer, each of which planned paused bench press while offline, so
- * each made an Exercise of that name before they synced.
+ * each made an Exercise of that name before they synced; syncing makes them one.
  */
 async function samePlanOnTwoDevicesOffline() {
   const server = await startTestServer();
@@ -50,4 +50,14 @@ test("a Substitute is never suggested under the name of the Exercise it would re
   const suggested = await phone.journal.suggestSubstitutes(entry!.id, "paus", TODAY);
 
   expect(suggested).toEqual([]);
+});
+
+test("an Exercise made on two devices before they synced is ranked by the Workouts of both", async () => {
+  const { phone } = await samePlanOnTwoDevicesOffline();
+  const workout = await phone.journal.createWorkout(localDate("2026-09-26"));
+  await phone.journal.setPlan(workout.id, "paused squat 60x5x3");
+
+  const suggested = await phone.journal.suggestExercises("paus", TODAY);
+
+  expect(suggested.map((e) => e.primaryName)).toEqual(["paused bench press", "paused squat"]);
 });

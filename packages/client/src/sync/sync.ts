@@ -7,7 +7,7 @@ import {
   type SessionAnswer,
   type SyncedRecord,
 } from "@gymlog/shared";
-import { followMerges, recordTable, writeAsSync, type JournalDb, type Unsynced } from "../journal/store.ts";
+import { followMerges, mergeSameNames, recordTable, writeAsSync, type JournalDb, type Unsynced } from "../journal/store.ts";
 import { serverApi, SignedOut } from "./api.ts";
 
 /** Where this device stands with sync. */
@@ -73,7 +73,8 @@ const PUSH_BATCH = 200;
 /** Sending stops for this round after this many batches, so constant typing can't keep it going forever. */
 const MAX_PUSH_BATCHES = 50;
 
-export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncControl {
+/** Syncs the store with the server in the options, if any; the clock stamps the changes sync itself makes. */
+export function openSync(db: JournalDb, options: SyncOptions | undefined, clock: () => number): SyncControl {
   let state: SyncState = options ? { status: "checking" } : { status: "off" };
   const stateListeners = new Set<() => void>();
   const arrivalListeners = new Set<() => void>();
@@ -105,8 +106,11 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined): SyncC
       if ((await claim(userId)) !== userId) return setState({ status: "otherUser" });
       await push(userId);
       await pull(userId);
-      // An Entry that arrived on an Exercise merged away moves to where it was merged; that goes out at once.
-      if (await followMerges(db)) await push(userId);
+      // Exercises of one name made on two devices become one, and an Entry that arrived on an
+      // Exercise merged away moves to where it was merged; that goes out at once. Every round
+      // checks, so Exercises of one name synced before the check existed become one too.
+      const merged = await mergeSameNames(db, clock());
+      if ((await followMerges(db)) || merged) await push(userId);
       setState({ status: "synced", owner });
     } catch (error) {
       // A device nobody has signed in on waits for its first sign-in, reachable or not. A store

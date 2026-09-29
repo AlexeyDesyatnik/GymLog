@@ -168,6 +168,78 @@ export async function liveExercise(db: JournalDb, id: string): Promise<ExerciseR
 }
 
 /**
+ * Merges one live Exercise into another: every Entry of it moves to the target, which keeps its
+ * Primary name, and its names become the target's Alternative names. Call it inside a
+ * transaction on both tables.
+ */
+export async function mergeExercise(db: JournalDb, mergedId: string, targetId: string, time: number): Promise<void> {
+  const merged = await liveExercise(db, mergedId);
+  const target = await liveExercise(db, targetId);
+  // In Finished Workouts too: a Merge changes which Exercise it is, not what was recorded.
+  const entries = await db.entries.filter((e) => e.exerciseId === mergedId && !e.deleted).toArray();
+  for (const entry of entries) await db.entries.update(entry.id, { exerciseId: targetId, updatedAt: time });
+  // Two devices that each made an Exercise of one name before they synced share that name.
+  const newNames = [merged.primaryName, ...merged.alternativeNames].filter(
+    (name) => !target.nameKeys.includes(exerciseNameKey(name)),
+  );
+  const names = withNames(target.primaryName, [...target.alternativeNames, ...newNames]);
+  await db.exercises.update(targetId, { ...names, updatedAt: time });
+  await db.exercises.update(mergedId, { deleted: true, mergedIntoId: targetId, updatedAt: time });
+}
+
+/**
+ * Merges live Exercises that share a name, of any of theirs, into one: each into the one of
+ * them with the lowest id, so every device picks the same without asking. Devices that each
+ * made an Exercise of a new name before they synced end up with two; a name belongs to at most
+ * one. Returns whether any were merged.
+ */
+export async function mergeSameNames(db: JournalDb, time: number): Promise<boolean> {
+  return db.transaction("rw", [db.exercises, db.entries], async () => {
+    const live = (await db.exercises.toArray()).filter((e) => !e.deleted).sort((a, b) => compareIds(a.id, b.id));
+    /** Each Exercise's target so far: the lowest id among the Exercises it shares a name with, directly or not. */
+    const targetOf = new Map(live.map((e) => [e.id, e.id]));
+    const finalTarget = (id: string): string => {
+      const target = targetOf.get(id)!;
+      return target === id ? id : finalTarget(target);
+    };
+    const holderByName = new Map<string, string>();
+    for (const exercise of live) {
+      for (const key of exercise.nameKeys) {
+        const holder = holderByName.get(key);
+        if (holder === undefined) {
+          holderByName.set(key, exercise.id);
+          continue;
+        }
+        const [lower, higher] = [finalTarget(holder), finalTarget(exercise.id)].sort(compareIds);
+        if (lower !== higher) targetOf.set(higher!, lower!);
+      }
+    }
+    let merged = false;
+    // Lowest id first, so each target's names grow in the same order on every device.
+    for (const exercise of live) {
+      const target = finalTarget(exercise.id);
+      if (target === exercise.id) continue;
+      await mergeExercise(db, exercise.id, target, time);
+      merged = true;
+    }
+    return merged;
+  });
+}
+
+/** Ids in the same order on every device, whatever its locale. */
+function compareIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** An Exercise's names, with the keys it is found by. */
+export function withNames(
+  primaryName: string,
+  alternativeNames: string[],
+): Pick<ExerciseRecord, "primaryName" | "alternativeNames" | "nameKeys"> {
+  return { primaryName, alternativeNames, nameKeys: [primaryName, ...alternativeNames].map(exerciseNameKey) };
+}
+
+/**
  * Moves each live Entry of an Exercise merged away to the Exercise it was merged into. An Entry
  * recorded on a device that hadn't heard of the Merge yet arrives on the merged Exercise; this is
  * a change of the Entry here, sent on like any other. Returns whether any Entry moved.
@@ -178,7 +250,8 @@ export async function followMerges(db: JournalDb): Promise<boolean> {
     /** The live Exercise this one ended up in, or undefined when it is live itself or was simply deleted. */
     const survivor = (id: string): string | undefined => {
       let exercise = exercises.get(id);
-      // A merged Exercise's target may have been merged in turn; ids can't loop, but a bound costs nothing.
+      // A merged Exercise's target may have been merged in turn, even back into it: a Merge made by
+      // hand on one device and the same-name Merge the other way on another. The bound ends such a loop.
       for (let hops = 0; exercise?.mergedIntoId && hops < exercises.size; hops++) {
         exercise = exercises.get(exercise.mergedIntoId);
         if (exercise && !exercise.deleted) return exercise.id;

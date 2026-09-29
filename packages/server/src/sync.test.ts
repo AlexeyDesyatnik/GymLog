@@ -27,7 +27,7 @@ test("records made on a device before anyone signed in are sent as the records o
   const server = await startTestServer();
   const phone = server.device();
   const workout = await phone.journal.createWorkout(localDate("2026-09-20"));
-  const entry = await phone.journal.addEntry(workout.id, "pull-up");
+  const entry = await phone.journal.addEntry(workout.id, "archer pull-up");
   await phone.journal.addPerformedSet(entry.id, { weight: null, reps: 8 });
   await phone.journal.sync.now();
   expect(phone.journal.sync.state()).toEqual({ status: "neverSignedIn" });
@@ -38,7 +38,7 @@ test("records made on a device before anyone signed in are sent as the records o
 
   const arrived = await computer.journal.getWorkout(workout.id);
   expect(arrived?.entries.map((e) => [e.exercise.primaryName, e.performedSets.map((s) => s.reps)])).toEqual([
-    ["pull-up", [8]],
+    ["archer pull-up", [8]],
   ]);
 });
 

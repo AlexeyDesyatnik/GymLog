@@ -31,9 +31,11 @@ import {
   liveSetsOf,
   liveSubstituteOf,
   liveWorkout,
+  mergeExercise,
   openStore,
   previousSubstitutesFor,
   recordableEntry,
+  withNames,
   workoutTables,
   type StoreState,
 } from "./store.ts";
@@ -354,7 +356,7 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
     // Never called before openStore returns, so sync is there by then.
     if (state.status === "ready") sync.start();
   });
-  const sync = openSync(db, server);
+  const sync = openSync(db, server, now);
 
   /** The fields every new record starts with. */
   function newRecord(): SyncedRecord {
@@ -603,21 +605,7 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
 
     async mergeExercises(mergedId, targetId) {
       if (mergedId === targetId) throw new RangeError("An Exercise is merged into another one");
-      await db.transaction("rw", [db.exercises, db.entries], async () => {
-        const merged = await liveExercise(db, mergedId);
-        const target = await liveExercise(db, targetId);
-        const time = now();
-        // In Finished Workouts too: a Merge changes which Exercise it is, not what was recorded.
-        const entries = await db.entries.filter((e) => e.exerciseId === mergedId && !e.deleted).toArray();
-        for (const entry of entries) await db.entries.update(entry.id, { exerciseId: targetId, updatedAt: time });
-        // Two devices that each made an Exercise of one name before they synced share that name.
-        const newNames = [merged.primaryName, ...merged.alternativeNames].filter(
-          (name) => !target.nameKeys.includes(exerciseNameKey(name)),
-        );
-        const names = withNames(target.primaryName, [...target.alternativeNames, ...newNames]);
-        await db.exercises.update(targetId, { ...names, updatedAt: time });
-        await db.exercises.update(mergedId, { deleted: true, mergedIntoId: targetId, updatedAt: time });
-      });
+      await db.transaction("rw", [db.exercises, db.entries], () => mergeExercise(db, mergedId, targetId, now()));
     },
 
     async deleteExercise(id) {
@@ -785,8 +773,9 @@ function substituteOf(
 }
 
 /**
- * Each Primary name once, where it ranks best. Devices that made an Exercise of the same name
- * before they synced each keep their own, but a suggestion is picked by its name.
+ * Each Primary name once, where it ranks best. Exercises that devices each made of one name
+ * before they synced are merged once sync brings them together, but a suggestion is picked by
+ * its name even before then.
  */
 function oncePerName(ranked: ExerciseRecord[]): ExerciseRecord[] {
   const seen = new Set<string>();
@@ -823,14 +812,6 @@ function byUse(uses: Map<string, WorkoutRecord[]>, today: LocalDate): (a: Exerci
 /** Exercises in the order of their Primary names, Russian ones first. */
 function byPrimaryName(a: ExerciseRecord, b: ExerciseRecord): number {
   return a.primaryName.localeCompare(b.primaryName, "ru");
-}
-
-/** An Exercise's names, with the keys it is found by. */
-function withNames(
-  primaryName: string,
-  alternativeNames: string[],
-): Pick<ExerciseRecord, "primaryName" | "alternativeNames" | "nameKeys"> {
-  return { primaryName, alternativeNames, nameKeys: [primaryName, ...alternativeNames].map(exerciseNameKey) };
 }
 
 function toWorkout(record: WorkoutRecord): Workout {
