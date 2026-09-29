@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
-import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { createOwnerInvite, openDatabase } from "../packages/server/src/users.ts";
-import { POSTGRES_IMAGE } from "../packages/server/src/testing/postgres.ts";
+import { startTestPostgres } from "../packages/server/src/testing/postgres.ts";
 
 /** Where the end-to-end run's server listens; the app's dev server passes /api on to it. */
 export const E2E_SERVER_PORT = 4176;
@@ -12,11 +11,11 @@ export const E2E_SERVER_PORT = 4176;
  * stops them.
  */
 export default async function startServer(): Promise<() => Promise<void>> {
-  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
+  const postgres = await startTestPostgres();
   const server = spawn(process.execPath, ["packages/server/src/main.ts"], {
     env: {
       ...process.env,
-      DATABASE_URL: container.getConnectionUri(),
+      DATABASE_URL: postgres.url,
       NODE_ENV: "development",
       SERVER_PORT: String(E2E_SERVER_PORT),
     },
@@ -30,11 +29,11 @@ export default async function startServer(): Promise<() => Promise<void>> {
     });
     server.on("exit", (code) => reject(new Error(`The server stopped before it started, with code ${code}`)));
   });
-  const database = await openDatabase(container.getConnectionUri());
+  const database = await openDatabase(postgres.url);
   process.env.GYMLOG_E2E_OWNER_INVITE = await createOwnerInvite(database.db);
   await database.close();
   return async () => {
     server.kill();
-    await container.stop();
+    await postgres.stop();
   };
 }
