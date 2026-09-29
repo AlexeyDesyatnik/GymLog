@@ -188,37 +188,25 @@ export async function mergeExercise(db: JournalDb, mergedId: string, targetId: s
 }
 
 /**
- * Merges live Exercises that share a name, of any of theirs, into one: each into the one of
- * them with the lowest id, so every device picks the same without asking. Devices that each
- * made an Exercise of a new name before they synced end up with two; a name belongs to at most
- * one. Returns whether any were merged.
+ * Merges live Exercises of one Primary name, ignoring case, into one: each into the one of them
+ * with the lowest id, so every device picks the same without asking. Devices that each made an
+ * Exercise of a new name before they synced end up with two. Sharing only an Alternative name
+ * isn't enough: two devices may give one to two different Exercises. Returns whether any were merged.
  */
 export async function mergeSameNames(db: JournalDb, time: number): Promise<boolean> {
   return db.transaction("rw", [db.exercises, db.entries], async () => {
     const live = (await db.exercises.toArray()).filter((e) => !e.deleted).sort((a, b) => compareIds(a.id, b.id));
-    /** Each Exercise's target so far: the lowest id among the Exercises it shares a name with, directly or not. */
-    const targetOf = new Map(live.map((e) => [e.id, e.id]));
-    const finalTarget = (id: string): string => {
-      const target = targetOf.get(id)!;
-      return target === id ? id : finalTarget(target);
-    };
-    const holderByName = new Map<string, string>();
-    for (const exercise of live) {
-      for (const key of exercise.nameKeys) {
-        const holder = holderByName.get(key);
-        if (holder === undefined) {
-          holderByName.set(key, exercise.id);
-          continue;
-        }
-        const [lower, higher] = [finalTarget(holder), finalTarget(exercise.id)].sort(compareIds);
-        if (lower !== higher) targetOf.set(higher!, lower!);
-      }
-    }
+    /** The lowest id of each Primary name. */
+    const targetByName = new Map<string, string>();
     let merged = false;
     // Lowest id first, so each target's names grow in the same order on every device.
     for (const exercise of live) {
-      const target = finalTarget(exercise.id);
-      if (target === exercise.id) continue;
+      const key = exerciseNameKey(exercise.primaryName);
+      const target = targetByName.get(key);
+      if (target === undefined) {
+        targetByName.set(key, exercise.id);
+        continue;
+      }
       await mergeExercise(db, exercise.id, target, time);
       merged = true;
     }

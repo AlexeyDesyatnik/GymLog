@@ -106,9 +106,9 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined, clock:
       if ((await claim(userId)) !== userId) return setState({ status: "otherUser" });
       await push(userId);
       await pull(userId);
-      // Exercises of one name made on two devices become one, and an Entry that arrived on an
+      // Exercises of one Primary name made on two devices become one, and an Entry that arrived on an
       // Exercise merged away moves to where it was merged; that goes out at once. Every round
-      // checks, so Exercises of one name synced before the check existed become one too.
+      // checks, so Exercises of one Primary name synced before the check existed become one too.
       const merged = await mergeSameNames(db, clock());
       if ((await followMerges(db)) || merged) await push(userId);
       setState({ status: "synced", owner });

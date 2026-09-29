@@ -773,7 +773,7 @@ function substituteOf(
 }
 
 /**
- * Each Primary name once, where it ranks best. Exercises that devices each made of one name
+ * Each Primary name once, where it ranks best. Exercises that devices each made of one Primary name
  * before they synced are merged once sync brings them together, but a suggestion is picked by
  * its name even before then.
  */

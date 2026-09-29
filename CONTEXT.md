@@ -93,7 +93,7 @@ _Avoid_: Movement, variation
 The one name of an Exercise shown everywhere. The user can change it.
 
 **Alternative name** (дополнительное название):
-Any other name of an Exercise, used only to find it. Within a catalog, a name belongs to at most one Exercise.
+Any other name of an Exercise, used only to find it. Within a catalog, a name belongs to at most one Exercise; the one exception is a name two devices each gave to a different Exercise before they synced, which both keep.
 _Avoid_: Alias, synonym
 
 **Exercise catalog** (справочник упражнений):
@@ -105,7 +105,7 @@ Common Exercises, each with an English Primary name and a Russian Alternative na
 _Avoid_: Default exercises, presets
 
 **Merge** (объединение):
-Combining two Exercises that turned out to be the same one into a single Exercise with their joint history. Every Entry of the other becomes the target's, in Finished Workouts too. The target keeps its Primary name; the other's names become Alternative names. Cannot be undone. Exercises of one name that devices each made before they synced are merged without asking, into the one every device picks alike.
+Combining two Exercises that turned out to be the same one into a single Exercise with their joint history. Every Entry of the other becomes the target's, in Finished Workouts too. The target keeps its Primary name; the other's names become Alternative names. Cannot be undone. Exercises of one Primary name that devices each made before they synced are merged without asking, into the one every device picks alike.
 _Avoid_: Link, deduplicate
 
 ### Users

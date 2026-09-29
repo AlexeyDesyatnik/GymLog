@@ -52,7 +52,22 @@ test("an Exercise two devices each made of one name before they synced becomes o
   expect(onPhone!.id).toBe(onComputer!.id);
 });
 
-test("Exercises of one name already in the catalog become one, the same one on each device", async () => {
+test("two Exercises given the same Alternative name on two devices before they synced stay apart", async () => {
+  const { phone, computer } = await phoneAndComputerOffline();
+  const [bench] = await phone.journal.listExercises("Bench press");
+  const [overhead] = await computer.journal.listExercises("Overhead press");
+  await phone.journal.addAlternativeName(bench!.id, "жим");
+  await computer.journal.addAlternativeName(overhead!.id, "жим");
+
+  await bothSynced(phone, computer);
+
+  for (const device of [phone, computer]) {
+    const names = (await device.journal.listExercises("жим")).map((e) => e.primaryName);
+    expect(names).toEqual(expect.arrayContaining(["Bench press", "Overhead press"]));
+  }
+});
+
+test("Exercises of one Primary name already in the catalog become one, the same one on each device", async () => {
   const server = await startTestServer();
   // A device on a version of the app that kept such Exercises apart, and synced them as they were.
   const olderApp = server.device();
@@ -69,9 +84,9 @@ test("Exercises of one name already in the catalog become one, the same one on e
       ...record,
       type: "exercise",
       id: middle,
-      primaryName: "отжимания на кольцах",
-      alternativeNames: ["ring dips"],
-      nameKeys: ["отжимания на кольцах", "ring dips"],
+      primaryName: "RING DIPS",
+      alternativeNames: ["отжимания на кольцах"],
+      nameKeys: ["ring dips", "отжимания на кольцах"],
     },
     ...ids.flatMap((exerciseId, i) => {
       const workoutId = crypto.randomUUID();
