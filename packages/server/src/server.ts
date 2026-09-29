@@ -67,6 +67,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   await app.register(cookie);
 
   /**
+   * Once the server is closing, an answer to a request already under way ends its connection.
+   * Kept alive, that connection would hold close() up for the keep-alive timeout (72 s): closing
+   * ends only the connections idle at that moment.
+   */
+  let closing = false;
+  app.addHook("preClose", async () => {
+    closing = true;
+  });
+  app.addHook("onSend", async (_request, reply) => {
+    if (closing) reply.header("connection", "close");
+  });
+
+  /**
    * The signed-in user, from the session cookie. When there is none, or it isn't known, the
    * request is answered 401 and null is returned.
    */
