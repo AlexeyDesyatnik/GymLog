@@ -26,10 +26,13 @@ test("an open Journal whose store a newer copy of the app upgrades reports so, a
   const name = uniqueJournalName();
   const journal = openJournal({ name });
   await storeStateBecomes(journal, "ready");
+  const states: StoreState[] = [];
+  journal.onStoreStateChange(() => states.push(journal.storeState()));
 
   const newer = await newerCopyUpgrading(name);
 
-  expect(journal.storeState()).toEqual({ status: "upgradedElsewhere" });
+  // Not even for a moment as closed by the browser, though the store is closed for the upgrade.
+  expect(states).toEqual([{ status: "upgradedElsewhere" }]);
   await expect(journal.listWorkouts()).rejects.toThrow();
   newer.close();
 });
@@ -45,19 +48,18 @@ test("a Journal whose store can't be opened reports that it failed, with the rea
   await expect(journal.listWorkouts()).rejects.toThrow();
 });
 
-test("an open Journal whose store the browser closes reports that it failed, saying the browser closed it", async () => {
+test("an open Journal whose store the browser closes reports so, and is not reopened", async () => {
   const name = uniqueJournalName();
   const journal = openJournal({ name });
   await storeStateBecomes(journal, "ready");
 
   browserClosesStore(name);
 
-  const state = await storeStateBecomes(journal, "failed");
-  expect(state).toEqual({ status: "failed", error: expect.stringContaining("browser closed") });
+  await storeStateBecomes(journal, "closedByBrowser");
   await expect(journal.listWorkouts()).rejects.toThrow();
 });
 
-test("a Journal closed on purpose reports no failure", async () => {
+test("a Journal closed on purpose doesn't report its store as closed by the browser", async () => {
   const journal = openJournal({ name: uniqueJournalName() });
   await storeStateBecomes(journal, "ready");
   const states: StoreState[] = [];
