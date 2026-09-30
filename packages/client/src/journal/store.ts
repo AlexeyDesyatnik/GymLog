@@ -54,6 +54,8 @@ export type StoreState =
   | { status: "blocked" }
   /** Another copy of the app, on newer code, upgraded the store, so this copy closed it for good. */
   | { status: "upgradedElsewhere" }
+  /** The browser closed the store by itself, for instance when the site's data was cleared. */
+  | { status: "closedByBrowser" }
   | { status: "failed"; error: string };
 
 /**
@@ -97,24 +99,27 @@ export function openStore(name: string, onStateChange: (state: StoreState) => vo
       return { unsynced: 1, updatedAt: Math.max(changes.updatedAt ?? 0, record.updatedAt + 1) };
     });
   }
-  /** Whether the store is open, so that its closing means it was closed. */
-  let open = false;
+  /**
+   * Whether a closing of the store would be the browser's doing. Dexie also closes the store
+   * itself when opening it fails and when another copy upgrades it; those are reported as such.
+   */
+  let closingIsBrowsers = false;
   db.on("blocked", () => onStateChange({ status: "blocked" }));
-  // Dexie closes the store itself here, to let the upgrade go ahead.
+  // Dexie closes the store itself after this, to let the upgrade go ahead: Dexie calls its own
+  // handler after the ones subscribed here.
   db.on("versionchange", () => {
-    open = false;
+    closingIsBrowsers = false;
     onStateChange({ status: "upgradedElsewhere" });
   });
-  // The browser closes the store by itself, for instance when the site's data is cleared. Closing
-  // it on purpose also lands here; the Journal no longer listens by then.
+  // Closing the store on purpose also lands here; the Journal no longer listens by then.
   db.on("close", () => {
-    if (!open) return;
-    open = false;
-    onStateChange({ status: "failed", error: "The browser closed the store on this device" });
+    if (!closingIsBrowsers) return;
+    closingIsBrowsers = false;
+    onStateChange({ status: "closedByBrowser" });
   });
   db.open().then(
     () => {
-      open = true;
+      closingIsBrowsers = true;
       onStateChange({ status: "ready" });
     },
     (error: unknown) => onStateChange({ status: "failed", error: String(error) }),

@@ -37,6 +37,15 @@ export function StoreProblem({ problem }: { problem: StoreProblemState }) {
           <p className="store-problem-text">
             <strong>GymLog обновился в другой вкладке — обновите страницу.</strong>
           </p>
+        ) : problem.status === "closedByBrowser" ? (
+          <>
+            <p className="store-problem-text">
+              <strong>Не удалось открыть данные на этом устройстве.</strong>
+            </p>
+            <p className="hint">
+              Браузер закрыл данные GymLog на этом устройстве, например, когда их очистили в настройках сайта.
+            </p>
+          </>
         ) : (
           <>
             <p className="store-problem-text">
