@@ -1,9 +1,9 @@
 import {
   checkRpe,
   checkSetValues,
-  daysBefore,
   exerciseNameKey,
   formatPlanLine,
+  localDateToDate,
   monthsBefore,
   parsePlan,
   type PlanLine,
@@ -142,8 +142,9 @@ export interface TemplateChoice {
   /** Every Workout with a Plan or Performed Sets to copy, whatever its date, as listWorkouts orders them. */
   templates: Template[];
   /**
-   * The id of the Template offered by default: the Workout a week before the new Workout's date,
-   * otherwise the most recent one before it; null when none is before it.
+   * The id of the Template offered by default: the most recent Workout before the new Workout's
+   * date on the same weekday, however many weeks back; null when there is none, rather than one on
+   * another weekday, since a weekly cycle gives each weekday its own numbers.
    */
   offered: string | null;
 }
@@ -500,9 +501,9 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
         const exerciseIds = new Set(plan.map((e) => e.exerciseId));
         return [{ ...toWorkout(record), exerciseNames: [...exerciseIds].map((id) => primaryNameById.get(id)!) }];
       });
-      const weekBefore = daysBefore(date, 7);
+      const weekday = (d: LocalDate) => localDateToDate(d).getDay();
       // Newest first, so the first found before the date is the most recent.
-      const offered = templates.find((t) => t.date === weekBefore) ?? templates.find((t) => t.date < date);
+      const offered = templates.find((t) => t.date < date && weekday(t.date) === weekday(date));
       return { templates, offered: offered?.id ?? null };
     },
 

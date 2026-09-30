@@ -10,25 +10,39 @@ async function plannedWorkout(journal: Journal, date: string, plan = "squat 100x
   return workout;
 }
 
-test("the Template offered by default is the Workout a week before the new Workout's date", async () => {
+test("the Template offered is the last Workout on the new one's weekday, however many weeks back", async () => {
   const journal = freshJournal();
-  const weekBefore = await plannedWorkout(journal, "2026-09-22");
+  // Last week trained Tuesday, Thursday and Saturday; this week nothing yet.
+  const lastTuesday = await plannedWorkout(journal, "2026-09-22");
+  await plannedWorkout(journal, "2026-09-24");
   await plannedWorkout(journal, "2026-09-26");
 
-  const { offered } = await journal.templatesFor(localDate("2026-09-29"));
+  // Next week's Tuesday.
+  const { offered } = await journal.templatesFor(localDate("2026-10-06"));
 
-  expect(offered).toBe(weekBefore.id);
+  expect(offered).toBe(lastTuesday.id);
 });
 
-test("with no Workout a week before, the most recent Workout before the new one's date is offered", async () => {
+test("of several Workouts on the new one's weekday, the most recent before its date is offered", async () => {
   const journal = freshJournal();
-  await plannedWorkout(journal, "2026-09-24");
-  const mostRecent = await plannedWorkout(journal, "2026-09-26");
-  await plannedWorkout(journal, "2026-10-01");
+  await plannedWorkout(journal, "2026-09-08");
+  const mostRecent = await plannedWorkout(journal, "2026-09-22");
+  await plannedWorkout(journal, "2026-09-15");
+  await plannedWorkout(journal, "2026-10-13");
 
-  const { offered } = await journal.templatesFor(localDate("2026-09-29"));
+  const { offered } = await journal.templatesFor(localDate("2026-10-06"));
 
   expect(offered).toBe(mostRecent.id);
+});
+
+test("with no earlier Workout on the new one's weekday, none is offered, not the most recent on another", async () => {
+  const journal = freshJournal();
+  await plannedWorkout(journal, "2026-09-24");
+  await plannedWorkout(journal, "2026-09-26");
+
+  const { offered } = await journal.templatesFor(localDate("2026-10-06"));
+
+  expect(offered).toBeNull();
 });
 
 test("with no Workout before the new one's date, none is offered", async () => {
@@ -43,31 +57,32 @@ test("with no Workout before the new one's date, none is offered", async () => {
 
 test("a Workout with neither a Plan nor Performed Sets has nothing to copy and can't be chosen", async () => {
   const journal = freshJournal();
-  const planned = await plannedWorkout(journal, "2026-09-20");
+  // Tuesdays, but for the improvised Monday.
+  const planned = await plannedWorkout(journal, "2026-09-15");
   const improvised = await journal.createWorkout(localDate("2026-09-21"));
   const pullUp = await journal.addEntry(improvised.id, "pull-up");
   await journal.addPerformedSet(pullUp.id, { weight: null, reps: 8 });
   await journal.createWorkout(localDate("2026-09-22"));
-  const onlyEntries = await journal.createWorkout(localDate("2026-09-23"));
+  const onlyEntries = await journal.createWorkout(localDate("2026-09-22"));
   await journal.addEntry(onlyEntries.id, "plank");
 
   const { offered, templates } = await journal.templatesFor(localDate("2026-09-29"));
 
-  expect(offered).toBe(improvised.id);
+  expect(offered).toBe(planned.id);
   expect(templates.map((t) => t.id)).toEqual([improvised.id, planned.id]);
 });
 
 test("every Workout with something to copy can be chosen, newest first, whatever its date", async () => {
   const journal = freshJournal();
   const older = await plannedWorkout(journal, "2026-09-15");
-  const weekBefore = await plannedWorkout(journal, "2026-09-22");
+  const lastWeek = await plannedWorkout(journal, "2026-09-22");
   const later = await plannedWorkout(journal, "2026-10-01");
 
   const { templates } = await journal.templatesFor(localDate("2026-09-29"));
 
   expect(templates.map((t) => [t.id, t.date])).toEqual([
     [later.id, "2026-10-01"],
-    [weekBefore.id, "2026-09-22"],
+    [lastWeek.id, "2026-09-22"],
     [older.id, "2026-09-15"],
   ]);
 });
