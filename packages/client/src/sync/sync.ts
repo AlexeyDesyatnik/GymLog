@@ -39,7 +39,10 @@ export interface Sync {
   onStateChange(listener: () => void): () => void;
   /** Calls the listener whenever records from another device are stored here; returns a function that stops it. */
   onRecordsArrived(listener: () => void): () => void;
-  /** Syncs now: sends every change made here, then takes every change from elsewhere. Rejects when it fails. */
+  /**
+   * Syncs now: sends every change made here, then takes every change from elsewhere. Rejects when it
+   * fails. Once sync has stopped, with the store closed for good, it does nothing.
+   */
   now(): Promise<void>;
 }
 

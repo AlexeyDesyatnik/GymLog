@@ -49,6 +49,8 @@ export interface Device {
   goOnline(): void;
   /** The session on this device expires: the server no longer knows who is signed in there. */
   expireSession(): void;
+  /** How many requests this device has sent to the server, answered or not. */
+  requestsSent(): number;
   /** Sets this device's clock to this time, in milliseconds; it ticks by 1 ms per reading from there. */
   setClock(time: number): void;
   /** Closes the app on this device and opens it again, still signed in and on the same connection. */
@@ -125,7 +127,13 @@ export function testPassword(login: string): string {
 
 type ConnectionControl = Pick<
   Device,
-  "loseNextAnswer" | "dropConnectionMidPush" | "stallNextRequest" | "goOffline" | "goOnline" | "expireSession"
+  | "loseNextAnswer"
+  | "dropConnectionMidPush"
+  | "stallNextRequest"
+  | "goOffline"
+  | "goOnline"
+  | "expireSession"
+  | "requestsSent"
 >;
 
 /** A device's network and cookies: what stays the same when the app is closed and opened again. */
@@ -143,8 +151,10 @@ function deviceConnection(): Connection {
   let droppingMidPush = false;
   let stalling = false;
   const onlineListeners = new Set<() => void>();
+  let requestsSent = 0;
 
   const connectionFetch: typeof fetch = async (input, init) => {
+    requestsSent++;
     if (offline) throw new TypeError("fetch failed: offline");
     if (stalling) {
       stalling = false;
@@ -181,6 +191,7 @@ function deviceConnection(): Connection {
         for (const listener of onlineListeners) listener();
       },
       expireSession: jar.clear,
+      requestsSent: () => requestsSent,
     },
   };
 }
