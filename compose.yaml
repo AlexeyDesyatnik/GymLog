@@ -1,5 +1,8 @@
 # The dev server's database: `npm run db` starts it. The same image and version as in tests
 # (packages/server/src/testing/postgres.ts) and on the server.
+# Named, so a copy of the repo in another folder (a worktree) uses the same database instead of
+# starting an empty one of its own.
+name: gymlog
 services:
   postgres:
     image: postgres:18-alpine
