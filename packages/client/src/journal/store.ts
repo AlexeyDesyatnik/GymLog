@@ -97,11 +97,26 @@ export function openStore(name: string, onStateChange: (state: StoreState) => vo
       return { unsynced: 1, updatedAt: Math.max(changes.updatedAt ?? 0, record.updatedAt + 1) };
     });
   }
+  /** Whether the store is open, so that its closing means it was closed. */
+  let open = false;
   db.on("blocked", () => onStateChange({ status: "blocked" }));
   // Dexie closes the store itself here, to let the upgrade go ahead.
-  db.on("versionchange", () => onStateChange({ status: "upgradedElsewhere" }));
+  db.on("versionchange", () => {
+    open = false;
+    onStateChange({ status: "upgradedElsewhere" });
+  });
+  // The browser closes the store by itself, for instance when the site's data is cleared. Closing
+  // it on purpose also lands here; the Journal no longer listens by then.
+  db.on("close", () => {
+    if (!open) return;
+    open = false;
+    onStateChange({ status: "failed", error: "The browser closed the store on this device" });
+  });
   db.open().then(
-    () => onStateChange({ status: "ready" }),
+    () => {
+      open = true;
+      onStateChange({ status: "ready" });
+    },
     (error: unknown) => onStateChange({ status: "failed", error: String(error) }),
   );
   return db;

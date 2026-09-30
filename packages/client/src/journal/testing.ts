@@ -1,4 +1,5 @@
 import { Dexie } from "dexie";
+import { forceCloseDatabase } from "fake-indexeddb";
 import { openJournal, type Journal, type StoreState } from "./journal.ts";
 
 let journalCount = 0;
@@ -59,6 +60,19 @@ export async function newerCopyUpgrading(name: string): Promise<{ close(): void 
   const version = current.version;
   current.close();
   return rawConnection(name, version + indexedDbVersion(1));
+}
+
+/**
+ * The browser closes every open connection to the store by itself, as when the user clears the
+ * site's data. The connections are fake-indexeddb's own, reached through its internals, so the
+ * Journal needn't hand its connection out.
+ */
+export function browserClosesStore(name: string): void {
+  const databases = (indexedDB as unknown as { _databases: Map<string, { connections: IDBDatabase[] }> })._databases;
+  const connections = databases.get(name)?.connections ?? [];
+  if (connections.length === 0) throw new Error(`No open connection to ${name}`);
+  // Its types ask for the connection's class, though it takes a connection.
+  for (const connection of connections) forceCloseDatabase(connection as unknown as Parameters<typeof forceCloseDatabase>[0]);
 }
 
 /** A store at schema version 1 whose Workouts are keyed by date, which no version of the code can fit. */
