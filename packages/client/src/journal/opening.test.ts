@@ -2,10 +2,12 @@ import { expect, test } from "vitest";
 import { openJournal, type StoreState } from "./journal.ts";
 import {
   browserClosesStore,
+  emptyServer,
   newerCopyUpgrading,
   olderCopyHolding,
   storeStateBecomes,
   storeTheCodeCannotFit,
+  syncSettles,
   uniqueJournalName,
 } from "./testing.ts";
 
@@ -35,6 +37,47 @@ test("an open Journal whose store a newer copy of the app upgrades reports so, a
   expect(states).toEqual([{ status: "upgradedElsewhere" }]);
   await expect(journal.listWorkouts()).rejects.toThrow();
   newer.close();
+});
+
+/** A Journal syncing with a server, its store ready and synced once, whose coming back online syncs again. */
+async function syncingJournal() {
+  const name = uniqueJournalName();
+  const server = emptyServer();
+  const journal = openJournal({ name, server: server.options });
+  await storeStateBecomes(journal, "ready");
+  await syncSettles();
+  const before = server.requests();
+  server.backOnline();
+  await syncSettles();
+  expect(server.requests()).toBeGreaterThan(before);
+  return { name, server, journal };
+}
+
+test("after its store is upgraded elsewhere, a Journal makes no more sync requests to the server", async () => {
+  const { name, server, journal } = await syncingJournal();
+
+  const newer = await newerCopyUpgrading(name);
+  await storeStateBecomes(journal, "upgradedElsewhere");
+  const requests = server.requests();
+  server.backOnline();
+  await journal.sync.now();
+  await syncSettles();
+
+  expect(server.requests()).toBe(requests);
+  newer.close();
+});
+
+test("after the browser closes its store, a Journal makes no more sync requests to the server", async () => {
+  const { name, server, journal } = await syncingJournal();
+
+  browserClosesStore(name);
+  await storeStateBecomes(journal, "closedByBrowser");
+  const requests = server.requests();
+  server.backOnline();
+  await journal.sync.now();
+  await syncSettles();
+
+  expect(server.requests()).toBe(requests);
 });
 
 test("a Journal whose store can't be opened reports that it failed, with the reason", async () => {

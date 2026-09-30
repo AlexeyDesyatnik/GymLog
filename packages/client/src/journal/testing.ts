@@ -1,6 +1,8 @@
 import { Dexie } from "dexie";
 import { forceCloseDatabase } from "fake-indexeddb";
+import type { PullAnswer, PushAnswer, SessionAnswer } from "@gymlog/shared";
 import { openJournal, type Journal, type StoreState } from "./journal.ts";
+import type { SyncOptions } from "../sync/sync.ts";
 
 let journalCount = 0;
 
@@ -13,6 +15,44 @@ export function uniqueJournalName(): string {
 export function freshJournal(): Journal {
   let clock = 1_000;
   return openJournal({ name: uniqueJournalName(), now: () => clock++ });
+}
+
+/**
+ * A server with a user signed in and no records, which counts the requests sent to it, for a
+ * Journal's `server` option; `backOnline` tells the Journal the connection is back, as the browser
+ * would. Only for counting: sync itself is tested against the real server (seam 2).
+ */
+export function emptyServer(): { options: SyncOptions; requests(): number; backOnline(): void } {
+  let requests = 0;
+  const onlineListeners = new Set<() => void>();
+  const answers: Record<string, unknown> = {
+    "/api/session": { userId: "a-user", owner: false } satisfies SessionAnswer,
+    "/api/sync/push": { refused: [] } satisfies PushAnswer,
+    "/api/sync/pull": { records: [], cursor: 0, more: false } satisfies PullAnswer,
+  };
+  return {
+    options: {
+      url: "http://server.test",
+      fetch: async (input) => {
+        requests++;
+        const path = new URL(String(input)).pathname;
+        return Response.json(answers[path]);
+      },
+      onOnline(listener) {
+        onlineListeners.add(listener);
+        return () => onlineListeners.delete(listener);
+      },
+    },
+    requests: () => requests,
+    backOnline() {
+      for (const listener of onlineListeners) listener();
+    },
+  };
+}
+
+/** Lets every sync already started run its course. */
+export function syncSettles(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 50));
 }
 
 /** Resolves once the Journal's store is in this state. */

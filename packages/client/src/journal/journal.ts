@@ -244,7 +244,10 @@ export interface Journal {
    * without a line stays for its Performed Sets or is removed. Refused for a Finished Workout.
    */
   setPlan(workoutId: string, notation: string): Promise<PlanLine[]>;
-  /** Keeps the records here and on the user's other devices in step, by way of the server. */
+  /**
+   * Keeps the records here and on the user's other devices in step, by way of the server. It stops
+   * once the store is closed for good, upgraded elsewhere or closed by the browser.
+   */
   readonly sync: Sync;
   /** Who gets in: using an Invite, signing in, and what the Owner does for other Users. */
   readonly access: Access;
@@ -384,6 +387,8 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
     for (const listener of storeStateListeners) listener();
     // Never called before openStore returns, so sync is there by then.
     if (state.status === "ready") sync.start();
+    // A store closed for good is never reopened, so there is nothing left to sync.
+    if (state.status === "upgradedElsewhere" || state.status === "closedByBrowser") sync.close();
   });
   const sync = openSync(db, server, now);
 
