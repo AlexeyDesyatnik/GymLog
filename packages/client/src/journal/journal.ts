@@ -3,9 +3,9 @@ import {
   checkSetValues,
   exerciseNameKey,
   formatPlanLine,
-  localDateToDate,
   monthsBefore,
   parsePlan,
+  weekdayOf,
   type PlanLine,
 } from "@gymlog/shared";
 import type { EntryRecord, ExerciseRecord, LocalDate, SetRecord, SyncedRecord, WorkoutRecord } from "@gymlog/shared";
@@ -501,9 +501,8 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
         const exerciseIds = new Set(plan.map((e) => e.exerciseId));
         return [{ ...toWorkout(record), exerciseNames: [...exerciseIds].map((id) => primaryNameById.get(id)!) }];
       });
-      const weekday = (d: LocalDate) => localDateToDate(d).getDay();
       // Newest first, so the first found before the date is the most recent.
-      const offered = templates.find((t) => t.date < date && weekday(t.date) === weekday(date));
+      const offered = templates.find((t) => t.date < date && weekdayOf(t.date) === weekdayOf(date));
       return { templates, offered: offered?.id ?? null };
     },
 

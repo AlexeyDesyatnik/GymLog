@@ -57,9 +57,9 @@ test("with no Workout before the new one's date, none is offered", async () => {
 
 test("a Workout with neither a Plan nor Performed Sets has nothing to copy and can't be chosen", async () => {
   const journal = freshJournal();
-  // Tuesdays, but for the improvised Monday.
-  const planned = await plannedWorkout(journal, "2026-09-15");
-  const improvised = await journal.createWorkout(localDate("2026-09-21"));
+  // All Tuesdays: the two most recent have nothing to copy, so the improvised one before them is offered.
+  const planned = await plannedWorkout(journal, "2026-09-08");
+  const improvised = await journal.createWorkout(localDate("2026-09-15"));
   const pullUp = await journal.addEntry(improvised.id, "pull-up");
   await journal.addPerformedSet(pullUp.id, { weight: null, reps: 8 });
   await journal.createWorkout(localDate("2026-09-22"));
@@ -68,7 +68,7 @@ test("a Workout with neither a Plan nor Performed Sets has nothing to copy and c
 
   const { offered, templates } = await journal.templatesFor(localDate("2026-09-29"));
 
-  expect(offered).toBe(planned.id);
+  expect(offered).toBe(improvised.id);
   expect(templates.map((t) => t.id)).toEqual([improvised.id, planned.id]);
 });
 

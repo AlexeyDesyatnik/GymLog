@@ -28,6 +28,11 @@ export function monthsBefore(date: LocalDate, months: number): LocalDate {
   return localDateOf(new Date(year, month - 1 - months, Math.min(day, lastDay)));
 }
 
+/** The day of the week of that date, 0 for Sunday to 6 for Saturday. */
+export function weekdayOf(date: LocalDate): number {
+  return localDateToDate(date).getDay();
+}
+
 /** Midnight of that date in the user's own time zone. */
 export function localDateToDate(date: LocalDate): Date {
   const [year, month, day] = date.split("-").map(Number) as [number, number, number];
