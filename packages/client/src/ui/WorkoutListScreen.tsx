@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { localDate, localDateOf, type LocalDate } from "@gymlog/shared";
-import type { Journal, WorkoutSummary } from "../journal/journal.ts";
+import { localDate, type LocalDate } from "@gymlog/shared";
+import type { Journal, Template, TemplateChoice, WorkoutSummary } from "../journal/journal.ts";
 import { formatWorkoutDate } from "./format.ts";
 import { SyncStatus } from "./SyncStatus.tsx";
 import { exercisesHref, workoutHref } from "./useRoute.ts";
@@ -14,15 +14,18 @@ export function WorkoutListScreen({ journal, today }: { journal: Journal; today:
   /** The date the user picked for a new Workout; until they pick one, it's today. */
   const [chosenDate, setChosenDate] = useState<string | null>(null);
   const newDate = chosenDate ?? today;
-  /** The Workouts that can be the new Workout's Template, the one offered by default first. */
-  const [templates, setTemplates] = useState<WorkoutSummary[]>([]);
+  /** The Templates a new Workout can have, and the date they were looked up for. */
+  const [choice, setChoice] = useState<(TemplateChoice & { date: string }) | null>(null);
+  const templates = choice?.templates ?? [];
+  // Until the choice for the date shown is in, a new Workout could get the wrong Template.
+  const ready = !!newDate && choice?.date === newDate;
   /** The Template the user picked, or NO_TEMPLATE; until they pick, it's the one offered. */
   const [chosenTemplateId, setChosenTemplateId] = useState<string | null>(null);
   // A picked Template that has since gone, deleted here or on another device, is picked no more.
   const templateId =
     chosenTemplateId === NO_TEMPLATE || templates.some((t) => t.id === chosenTemplateId)
       ? chosenTemplateId!
-      : (templates[0]?.id ?? NO_TEMPLATE);
+      : (choice?.offered ?? NO_TEMPLATE);
 
   const reload = useCallback(async () => {
     setWorkouts(await journal.listWorkouts());
@@ -40,7 +43,7 @@ export function WorkoutListScreen({ journal, today }: { journal: Journal; today:
     if (!newDate || workouts === null) return;
     let current = true;
     void journal.templatesFor(localDate(newDate)).then((found) => {
-      if (current) setTemplates(found);
+      if (current) setChoice({ ...found, date: newDate });
     });
     return () => {
       current = false;
@@ -49,12 +52,12 @@ export function WorkoutListScreen({ journal, today }: { journal: Journal; today:
 
   async function create(event: FormEvent) {
     event.preventDefault();
-    const date = chosenDate ?? localDateOf(new Date());
-    if (!date) return;
+    // The date and the Template shown are the ones the new Workout gets.
+    if (!ready) return;
     const created =
       templateId === NO_TEMPLATE
-        ? await journal.createWorkout(localDate(date))
-        : await journal.createFromTemplate(templateId, localDate(date));
+        ? await journal.createWorkout(localDate(newDate))
+        : await journal.createFromTemplate(templateId, localDate(newDate));
     // Straight into the new Workout, to go through its Plan or change it.
     window.location.hash = workoutHref(created.id);
   }
@@ -96,7 +99,7 @@ export function WorkoutListScreen({ journal, today }: { journal: Journal; today:
             </select>
           </label>
         ) : null}
-        <button className="button primary" type="submit" disabled={!newDate}>
+        <button className="button primary" type="submit" disabled={!ready}>
           Новая тренировка
         </button>
       </form>
@@ -129,6 +132,6 @@ export function WorkoutListScreen({ journal, today }: { journal: Journal; today:
 }
 
 /** "вт, 22 сентября: squat · bench press". */
-function templateLabel(template: WorkoutSummary, today: LocalDate): string {
+function templateLabel(template: Template, today: LocalDate): string {
   return `${formatWorkoutDate(template.date, today)}: ${template.exerciseNames.join(" · ")}`;
 }

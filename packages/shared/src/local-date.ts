@@ -30,8 +30,9 @@ export function monthsBefore(date: LocalDate, months: number): LocalDate {
 
 /** The date that many days earlier. */
 export function daysBefore(date: LocalDate, days: number): LocalDate {
-  const [year, month, day] = date.split("-").map(Number) as [number, number, number];
-  return localDateOf(new Date(year, month - 1, day - days));
+  const value = localDateToDate(date);
+  value.setDate(value.getDate() - days);
+  return localDateOf(value);
 }
 
 /** Midnight of that date in the user's own time zone. */

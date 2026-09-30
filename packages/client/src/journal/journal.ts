@@ -132,6 +132,22 @@ export interface WorkoutWithEntries extends Workout {
   planNotation: string;
 }
 
+/** A Workout as offered to be the source of a new Workout's Plan. */
+export interface Template extends Workout {
+  /** Primary names of the Exercises its copy plans, in order, each once. */
+  exerciseNames: string[];
+}
+
+export interface TemplateChoice {
+  /** Every Workout with a Plan or Performed Sets to copy, whatever its date, as listWorkouts orders them. */
+  templates: Template[];
+  /**
+   * The id of the Template offered by default: the Workout a week before the new Workout's date,
+   * otherwise the most recent one before it; null when none is before it.
+   */
+  offered: string | null;
+}
+
 /**
  * The single interface the UI uses for everything a user does with their Workouts. A change
  * that fails, whether the store can't carry it out or the Journal refuses it, rejects with
@@ -150,12 +166,8 @@ export interface Journal {
    * on the fly, Performed Sets, RPE or Comments.
    */
   createFromTemplate(templateId: string, date: LocalDate): Promise<Workout>;
-  /**
-   * The Workouts that can serve as the Template of a new Workout on this date: those with a Plan or
-   * Performed Sets to copy. First the one offered by default: the Workout a week before the date,
-   * otherwise the most recent one before it; then the others as listWorkouts orders them.
-   */
-  templatesFor(date: LocalDate): Promise<WorkoutSummary[]>;
+  /** The Templates a new Workout on this date can have, and the one offered by default. */
+  templatesFor(date: LocalDate): Promise<TemplateChoice>;
   listWorkouts(): Promise<WorkoutSummary[]>;
   /** The Workout with its Entries, or undefined if there is no such Workout. */
   getWorkout(id: string): Promise<WorkoutWithEntries | undefined>;
@@ -422,22 +434,10 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
     return toPerformedSet(set);
   }
 
-  async function listWorkouts(): Promise<WorkoutSummary[]> {
-    const records = (await db.workouts.orderBy("[date+createdAt]").reverse().toArray()).filter((r) => !r.deleted);
-    const entries = await liveEntriesOf(db, records.map((r) => r.id));
-    const exercises = await db.exercises.bulkGet(entries.map((e) => e.exerciseId));
-    // A replaced Entry wasn't performed; its Substitute names the Exercise that was.
-    const replacedIds = new Set(entries.flatMap((e) => e.substitutesEntryId ?? []));
-    return records.map((record) => {
-      // Keyed by Exercise, so each is named once, where it first appears.
-      const primaryNameByExerciseId = new Map<string, string>();
-      entries.forEach((entry, i) => {
-        if (entry.workoutId === record.id && !replacedIds.has(entry.id)) {
-          primaryNameByExerciseId.set(entry.exerciseId, exercises[i]!.primaryName);
-        }
-      });
-      return { ...toWorkout(record), exerciseNames: [...primaryNameByExerciseId.values()] };
-    });
+  async function addWorkout(date: LocalDate): Promise<WorkoutRecord> {
+    const record: WorkoutRecord = { ...newRecord(), date, createdAt: now(), finished: false };
+    await db.workouts.add(record);
+    return record;
   }
 
   /** Adds an Entry's Planned Sets, in order; call it inside a transaction on the Sets. */
@@ -466,53 +466,63 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
     },
 
     async createWorkout(date) {
-      const record: WorkoutRecord = { ...newRecord(), date, createdAt: now(), finished: false };
-      await db.workouts.add(record);
-      return toWorkout(record);
+      return toWorkout(await addWorkout(date));
     },
 
     async createFromTemplate(templateId, date) {
       return db.transaction("rw", workoutTables(db), async () => {
         await liveWorkout(db, templateId);
         const entries = await liveEntriesOf(db, [templateId]);
-        const sets = await liveSetsOf(db, entries.map((e) => e.id));
-        const record: WorkoutRecord = { ...newRecord(), date, createdAt: now(), finished: false };
-        await db.workouts.add(record);
-        const hasPlan = sets.some((s) => s.kind === "planned");
-        const copied = entries.map(({ id, exerciseId }) => {
-          const { plannedSets, performedSets } = splitSets(sets.filter((s) => s.entryId === id));
-          // Without a Plan, what was performed becomes the Plan.
-          const planned = hasPlan
-            ? plannedSets
-            : performedSets.map(({ weight, reps }) => ({ weight, reps, maxReps: null, targetRpe: null }));
-          return { exerciseId, planned };
-        });
-        // Entries with nothing planned, such as Substitutes and those added on the fly, stay behind.
-        for (const [position, { exerciseId, planned }] of copied.filter((c) => c.planned.length > 0).entries()) {
+        const plan = planToCopy(entries, await liveSetsOf(db, entries.map((e) => e.id)));
+        const record = await addWorkout(date);
+        for (const [position, { exerciseId, plannedSets }] of plan.entries()) {
           const entry: EntryRecord = { ...newRecord(), workoutId: record.id, exerciseId, position };
           await db.entries.add(entry);
-          await addPlannedSets(entry.id, planned);
+          await addPlannedSets(entry.id, plannedSets);
         }
         return toWorkout(record);
       });
     },
 
     async templatesFor(date) {
-      const workouts = await listWorkouts();
-      const entries = await liveEntriesOf(db, workouts.map((w) => w.id));
+      const records = (await db.workouts.orderBy("[date+createdAt]").reverse().toArray()).filter((r) => !r.deleted);
+      const entries = await liveEntriesOf(db, records.map((r) => r.id));
       const sets = await liveSetsOf(db, entries.map((e) => e.id));
-      // Planned or performed, a Set is something to copy.
+      const exercises = await db.exercises.bulkGet([...new Set(entries.map((e) => e.exerciseId))]);
+      const primaryNameById = new Map(exercises.map((e) => [e!.id, e!.primaryName]));
       const workoutIdByEntryId = new Map(entries.map((e) => [e.id, e.workoutId]));
-      const withSets = new Set(sets.map((s) => workoutIdByEntryId.get(s.entryId)));
-      const templates = workouts.filter((w) => withSets.has(w.id));
+      const templates = records.flatMap((record): Template[] => {
+        const plan = planToCopy(
+          entries.filter((e) => e.workoutId === record.id),
+          sets.filter((s) => workoutIdByEntryId.get(s.entryId) === record.id),
+        );
+        if (plan.length === 0) return [];
+        const exerciseIds = new Set(plan.map((e) => e.exerciseId));
+        return [{ ...toWorkout(record), exerciseNames: [...exerciseIds].map((id) => primaryNameById.get(id)!) }];
+      });
       const weekBefore = daysBefore(date, 7);
-      // The list is newest first, so the first found is the most recent.
-      const offered =
-        templates.find((w) => w.date === weekBefore) ?? templates.find((w) => w.date < date) ?? templates[0];
-      return offered ? [offered, ...templates.filter((w) => w !== offered)] : [];
+      // Newest first, so the first found before the date is the most recent.
+      const offered = templates.find((t) => t.date === weekBefore) ?? templates.find((t) => t.date < date);
+      return { templates, offered: offered?.id ?? null };
     },
 
-    listWorkouts,
+    async listWorkouts() {
+      const records = (await db.workouts.orderBy("[date+createdAt]").reverse().toArray()).filter((r) => !r.deleted);
+      const entries = await liveEntriesOf(db, records.map((r) => r.id));
+      const exercises = await db.exercises.bulkGet(entries.map((e) => e.exerciseId));
+      // A replaced Entry wasn't performed; its Substitute names the Exercise that was.
+      const replacedIds = new Set(entries.flatMap((e) => e.substitutesEntryId ?? []));
+      return records.map((record) => {
+        // Keyed by Exercise, so each is named once, where it first appears.
+        const primaryNameByExerciseId = new Map<string, string>();
+        entries.forEach((entry, i) => {
+          if (entry.workoutId === record.id && !replacedIds.has(entry.id)) {
+            primaryNameByExerciseId.set(entry.exerciseId, exercises[i]!.primaryName);
+          }
+        });
+        return { ...toWorkout(record), exerciseNames: [...primaryNameByExerciseId.values()] };
+      });
+    },
 
     async getWorkout(id) {
       const record = await db.workouts.get(id);
@@ -824,6 +834,29 @@ export function openJournal({ name = "gymlog", now = Date.now, server }: Journal
       db.close();
     },
   }, sync.changed);
+}
+
+/**
+ * What a copy of one Workout, given its live Entries and Sets in order, plans: each planned Entry's
+ * Exercise with its Planned Sets. Without a Plan, what was performed becomes the Plan, weight and
+ * reps only. Entries with nothing to copy, such as Substitutes and those added on the fly, stay behind.
+ */
+function planToCopy(
+  entries: EntryRecord[],
+  sets: SetRecord[],
+): { exerciseId: string; plannedSets: Omit<PlannedSet, "id">[] }[] {
+  const hasPlan = sets.some((s) => s.kind === "planned");
+  return entries
+    .map(({ id, exerciseId }) => {
+      const { plannedSets, performedSets } = splitSets(sets.filter((s) => s.entryId === id));
+      return {
+        exerciseId,
+        plannedSets: hasPlan
+          ? plannedSets
+          : performedSets.map(({ weight, reps }) => ({ weight, reps, maxReps: null, targetRpe: null })),
+      };
+    })
+    .filter((entry) => entry.plannedSets.length > 0);
 }
 
 /** The Exercise of the live Substitute performed instead of this Entry, if there is one. */

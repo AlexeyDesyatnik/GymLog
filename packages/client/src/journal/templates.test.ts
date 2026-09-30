@@ -15,9 +15,9 @@ test("the Template offered by default is the Workout a week before the new Worko
   const weekBefore = await plannedWorkout(journal, "2026-09-22");
   await plannedWorkout(journal, "2026-09-26");
 
-  const [offered] = await journal.templatesFor(localDate("2026-09-29"));
+  const { offered } = await journal.templatesFor(localDate("2026-09-29"));
 
-  expect(offered!.id).toBe(weekBefore.id);
+  expect(offered).toBe(weekBefore.id);
 });
 
 test("with no Workout a week before, the most recent Workout before the new one's date is offered", async () => {
@@ -26,12 +26,22 @@ test("with no Workout a week before, the most recent Workout before the new one'
   const mostRecent = await plannedWorkout(journal, "2026-09-26");
   await plannedWorkout(journal, "2026-10-01");
 
-  const [offered] = await journal.templatesFor(localDate("2026-09-29"));
+  const { offered } = await journal.templatesFor(localDate("2026-09-29"));
 
-  expect(offered!.id).toBe(mostRecent.id);
+  expect(offered).toBe(mostRecent.id);
 });
 
-test("a Workout with neither a Plan nor Performed Sets has nothing to copy and isn't offered", async () => {
+test("with no Workout before the new one's date, none is offered", async () => {
+  const journal = freshJournal();
+  await plannedWorkout(journal, "2026-09-29");
+  await plannedWorkout(journal, "2026-09-30");
+
+  const { offered } = await journal.templatesFor(localDate("2026-09-29"));
+
+  expect(offered).toBeNull();
+});
+
+test("a Workout with neither a Plan nor Performed Sets has nothing to copy and can't be chosen", async () => {
   const journal = freshJournal();
   const planned = await plannedWorkout(journal, "2026-09-20");
   const improvised = await journal.createWorkout(localDate("2026-09-21"));
@@ -41,21 +51,41 @@ test("a Workout with neither a Plan nor Performed Sets has nothing to copy and i
   const onlyEntries = await journal.createWorkout(localDate("2026-09-23"));
   await journal.addEntry(onlyEntries.id, "plank");
 
-  const templates = await journal.templatesFor(localDate("2026-09-29"));
+  const { offered, templates } = await journal.templatesFor(localDate("2026-09-29"));
 
+  expect(offered).toBe(improvised.id);
   expect(templates.map((t) => t.id)).toEqual([improvised.id, planned.id]);
 });
 
-test("after the one offered, every other Workout can be chosen, newest first", async () => {
+test("every Workout with something to copy can be chosen, newest first, whatever its date", async () => {
   const journal = freshJournal();
   const older = await plannedWorkout(journal, "2026-09-15");
   const weekBefore = await plannedWorkout(journal, "2026-09-22");
-  const recent = await plannedWorkout(journal, "2026-09-26");
   const later = await plannedWorkout(journal, "2026-10-01");
 
-  const templates = await journal.templatesFor(localDate("2026-09-29"));
+  const { templates } = await journal.templatesFor(localDate("2026-09-29"));
 
-  expect(templates.map((t) => t.id)).toEqual([weekBefore.id, later.id, recent.id, older.id]);
+  expect(templates.map((t) => [t.id, t.date])).toEqual([
+    [later.id, "2026-10-01"],
+    [weekBefore.id, "2026-09-22"],
+    [older.id, "2026-09-15"],
+  ]);
+});
+
+test("a Template names the Exercises its copy plans: not its Substitutes or Entries added on the fly", async () => {
+  const journal = freshJournal();
+  const planned = await plannedWorkout(journal, "2026-09-21", "squat 100x5x3\nbench press 80x5x3");
+  const [squat] = (await journal.getWorkout(planned.id))!.entries;
+  await journal.substituteEntry(squat!.id, "leg press");
+  await journal.addEntry(planned.id, "plank");
+  const improvised = await journal.createWorkout(localDate("2026-09-22"));
+  const dips = await journal.addEntry(improvised.id, "dips");
+  await journal.addPerformedSet(dips.id, { weight: 10, reps: 8 });
+  await journal.addEntry(improvised.id, "plank");
+
+  const { templates } = await journal.templatesFor(localDate("2026-09-29"));
+
+  expect(templates.map((t) => t.exerciseNames)).toEqual([["dips"], ["squat", "bench press"]]);
 });
 
 test("a Workout created from a Template, on its own date, has the Template's Plan", async () => {

@@ -90,10 +90,7 @@ input[type="date"],
   padding: 10px 12px;
   min-height: 46px;
   width: 100%;
-}
-
-/* A Template's label names its Exercises, which may run long. */
-.field select {
+  /* A Template's label names its Exercises, which may run long. */
   text-overflow: ellipsis;
 }
 
