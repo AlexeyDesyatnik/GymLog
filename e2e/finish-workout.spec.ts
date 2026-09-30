@@ -4,7 +4,6 @@ import { newLogin, signUp } from "./signIn.ts";
 test("plan a Workout, confirm Sets and Finish it: what wasn't recorded is Not performed", async ({ page, baseURL }) => {
   await signUp(page, baseURL!, newLogin("finish"));
   await page.getByRole("button", { name: "Новая тренировка" }).click();
-  await page.getByRole("link", { name: /сегодня/ }).click();
 
   await page.getByRole("button", { name: "Написать план" }).click();
   await page.getByLabel("План: одна строка — одно упражнение").fill("squat 100x5x2\nbench press 80x5");

@@ -1,4 +1,4 @@
-export { localDate, localDateOf, localDateToDate, monthsBefore, type LocalDate } from "./local-date.ts";
+export { daysBefore, localDate, localDateOf, localDateToDate, monthsBefore, type LocalDate } from "./local-date.ts";
 export {
   checkLogin,
   checkPassword,

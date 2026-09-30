@@ -80,7 +80,8 @@ h1 {
   color: var(--muted);
 }
 
-input[type="date"] {
+input[type="date"],
+.field select {
   font: inherit;
   color: var(--ink);
   background: var(--surface);
@@ -89,6 +90,16 @@ input[type="date"] {
   padding: 10px 12px;
   min-height: 46px;
   width: 100%;
+}
+
+/* A Template's label names its Exercises, which may run long. */
+.field select {
+  text-overflow: ellipsis;
+}
+
+/* The Template sits on a line of its own, under the date, so its Exercises have room. */
+.create .template-field {
+  flex-basis: 100%;
 }
 
 .button {

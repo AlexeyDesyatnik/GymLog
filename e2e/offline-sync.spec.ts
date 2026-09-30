@@ -15,7 +15,6 @@ test("Sets recorded on a phone offline reach the user's computer once the phone 
 
   await phoneContext.setOffline(true);
   await phone.getByRole("button", { name: "Новая тренировка" }).click();
-  await phone.getByRole("link", { name: /сегодня/ }).click();
   await phone.getByRole("button", { name: "Написать план" }).click();
   await phone.getByLabel("План: одна строка — одно упражнение").fill("squat 100x5x2");
   await phone.getByRole("button", { name: "Готово" }).click();
