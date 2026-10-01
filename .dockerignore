@@ -7,5 +7,7 @@
 .claude
 e2e
 test-results
+coverage
+**/*.tsbuildinfo
 playwright-report
 packages/server/src/testing

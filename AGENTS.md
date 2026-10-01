@@ -32,4 +32,4 @@ The sync tests (seam 2), the end-to-end tests (seam 3) and the dev server need D
 
 ### CI
 
-GitHub Actions runs typechecking and the full test suite on every PR.
+GitHub Actions runs typechecking and the full test suite on every PR, and builds the production image.

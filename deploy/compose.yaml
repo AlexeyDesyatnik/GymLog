@@ -23,6 +23,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Serving the app means the server started and brought the database up to date; deploys wait
+    # for it.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/"]
+      interval: 5s
+      retries: 6
     logging: *logging
 
   postgres:

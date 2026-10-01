@@ -19,9 +19,9 @@ fi
 apt-get update
 apt-get install -y docker.io docker-compose-v2 ufw
 # Docker Hub may be unreachable from Russia: the postgres and caddy images come through mirrors,
-# tried in order before Docker Hub itself.
+# tried in order before Docker Hub itself. Kept if already there, in case they were changed by hand.
 mkdir -p /etc/docker
-cat > /etc/docker/daemon.json <<'EOF'
+[ -f /etc/docker/daemon.json ] || cat > /etc/docker/daemon.json <<'EOF'
 {
   "registry-mirrors": ["https://mirror.gcr.io", "https://dockerhub.timeweb.cloud"]
 }

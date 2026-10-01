@@ -1,3 +1,4 @@
+import { relative, sep } from "node:path";
 import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
@@ -69,18 +70,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const database = await openDatabase(options.databaseUrl);
   const db = database.db;
 
-  // Requests come only through a proxy that says how the browser reached it: Caddy over HTTPS in
-  // production, Vite in development. Trusted, so session cookies are Secure behind HTTPS.
-  const app = Fastify({ trustProxy: true });
+  // Browsers reach the server through a proxy that says how they reached it: Caddy over HTTPS in
+  // production, from the Docker network, and Vite in development, from this computer. Only those
+  // are believed, so session cookies are Secure behind HTTPS.
+  const app = Fastify({ trustProxy: ["loopback", "uniquelocal"] });
   await app.register(cookie);
-  if (options.clientDir) {
+  const clientDir = options.clientDir;
+  if (clientDir) {
     await app.register(fastifyStatic, {
-      root: options.clientDir,
+      root: clientDir,
       // Each version's scripts and styles have names of their own and never change; everything
       // else, the service worker above all, is checked anew so a new version gets installed.
       cacheControl: false,
       setHeaders(reply, path) {
-        const unchanging = /[\\/]assets[\\/]/.test(path);
+        const unchanging = relative(clientDir, path).startsWith(`assets${sep}`);
         reply.header("cache-control", unchanging ? "public, max-age=31536000, immutable" : "no-cache");
       },
     });

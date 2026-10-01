@@ -20,6 +20,12 @@ fail() {
   exit 1
 }
 
+# Runs one of the server's own commands (packages/server/src) in the app's container, with the
+# production database and APP_URL.
+on_app() {
+  ssh "$SERVER" "cd $DIR && docker compose exec -T app node packages/server/src/$1.ts"
+}
+
 # Runs a script on the server, in $DIR.
 on_server() {
   ssh "$SERVER" "cd $DIR && bash -s" "$@"
@@ -52,7 +58,12 @@ if [ -n "$current" ] && [ "$current" != "$(image_id "gymlog:$version")" ]; then
   docker tag gymlog:current gymlog:previous
 fi
 docker tag "gymlog:$version" gymlog:current
-docker compose up -d --remove-orphans
+docker compose up -d --remove-orphans --wait --wait-timeout 120 || {
+  echo "The new version didn't start; deploy/prod.sh rollback goes back to the previous one" >&2
+  exit 1
+}
+# The Caddyfile may have changed, which up doesn't notice.
+docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile
 # Only the current and the previous version are kept.
 keep="$(image_id gymlog:current) $(image_id gymlog:previous)"
 docker image ls gymlog --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' | while read -r tag id; do
@@ -68,7 +79,7 @@ rollback() {
 set -euo pipefail
 docker image inspect gymlog:previous >/dev/null 2>&1 || { echo "There is no previous version" >&2; exit 1; }
 docker tag gymlog:previous gymlog:current
-docker compose up -d
+docker compose up -d --wait --wait-timeout 120
 EOF
   status
 }
@@ -85,8 +96,7 @@ EOF
 case "${1:-}" in
   deploy) deploy ;;
   rollback) rollback ;;
-  owner-invite) ssh "$SERVER" "cd $DIR && docker compose exec -T app node packages/server/src/owner-invite.ts" ;;
-  owner-password) ssh "$SERVER" "cd $DIR && docker compose exec -T app node packages/server/src/owner-password.ts" ;;
+  owner-invite | owner-password) on_app "$1" ;;
   status) status ;;
-  *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1 ;;
+  *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1 ;;
 esac

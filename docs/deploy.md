@@ -17,7 +17,9 @@ Everything below runs from the developer's computer in Git Bash, with Docker run
 
 The script refuses uncommitted changes and commits not pushed to `main`. It builds the image, tags it with the commit hash (e.g. `gymlog:9177403a1b2c`), sends it over SSH, copies the Compose file and the Caddyfile to the server, and restarts the app on the new version. The server applies database migrations as it starts.
 
-Users get the new version silently: their phones install it in the background and open it the next time the app is started, never in the middle of a Workout.
+Users get the new version silently, never in the middle of a Workout. A phone learns of it when the app is started, installs it in the background while the app runs, and opens it the next time the app is started after that, once the app was closed. So the first start after a deploy still shows the old version.
+
+If a new version doesn't start, `deploy` says so and stops: roll back as below.
 
 ## Rolling back
 

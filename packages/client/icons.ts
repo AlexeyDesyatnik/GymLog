@@ -22,17 +22,15 @@ const barbell = `
     <rect x="380" y="204" width="24" height="104" rx="10" />
   </g>`;
 
+/** The barbell on the accent colour, with the square's corners rounded by `corner` units. */
+const square = (corner: number) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="${corner}" fill="${ACCENT}" />${barbell}
+</svg>
+`;
 /** With rounded corners, for browsers that show the icon as it is. */
-const icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="${ACCENT}" />${barbell}
-</svg>
-`;
-
+const icon = square(112);
 /** Filling the whole square, for Android to cut to its own shape and for the iPhone to round. */
-const fullSquare = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="${ACCENT}" />${barbell}
-</svg>
-`;
+const fullSquare = square(0);
 
 const publicDir = new URL("./public/", import.meta.url);
 writeFileSync(new URL("icon.svg", publicDir), icon);
