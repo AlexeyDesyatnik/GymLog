@@ -75,11 +75,12 @@ It checks from outside what an attacker would try first, and prints `FAIL` for a
 Run it after changing anything in `deploy/` or on the server. The same checks by hand, in Git Bash:
 
 ```bash
-timeout 5 bash -c 'exec 3<>/dev/tcp/easygymlog.ru/5432' && echo OPEN || echo closed
+timeout 10 bash -c "exec 3<>/dev/tcp/easygymlog.ru/5432 && printf '\x00\x00\x00\x08\x04\xd2\x16\x2f' >&3 && head -c 1 <&3"; echo
+curl -s -m 10 -o /dev/null -w '%{http_code}\n' http://easygymlog.ru:3000/
 ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password deploy@easygymlog.ru
 ```
 
-The first must print `closed` (and `OPEN` for port 443). The second must end with `Permission denied (publickey)` without asking for a password; the same goes for `root@easygymlog.ru`.
+The first asks PostgreSQL for SSL and must print nothing: an open port would answer `S` or `N`. The second must print `000`, no HTTP answer. A plain "does the connection open" check isn't enough: a VPN or proxy on the way may accept a connection to any port itself. The third must end with `Permission denied (publickey)` without asking for a password; the same goes for `root@easygymlog.ru`.
 
 ## Setting up a new server
 

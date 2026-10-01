@@ -112,23 +112,32 @@ EOF
 
 # Checks, from this computer, what an attacker would try first (#39); fails if any check does.
 check() {
-  local host=${SERVER#*@} failed=0 port user methods role super password_seen
+  local host=${SERVER#*@} failed=0 user methods role super password_seen
   pass() { echo "ok    $*"; }
   flunk() {
     echo "FAIL  $*"
     failed=1
   }
-  # Whether a TCP connection to this port of the server opens within 5 seconds.
-  port_open() { timeout 5 bash -c "exec 3<>/dev/tcp/$host/$1" 2>/dev/null; }
 
-  if port_open 443; then
+  # A VPN or proxy on the way may accept a connection to any port itself, so a port counts as
+  # open only when the service behind it answers: PostgreSQL to a request for SSL with S or N,
+  # the app with any HTTP answer.
+  if [ "$(curl -s -m 10 -o /dev/null -w '%{http_code}' "https://$host/")" = 200 ]; then
     pass "HTTPS (443) answers"
   else
-    flunk "HTTPS (443) doesn't answer, so the closed ports below prove nothing"
+    flunk "HTTPS (443) doesn't answer, so the checks of closed ports below prove nothing"
   fi
-  for port in 5432 3000; do
-    if port_open "$port"; then flunk "port $port is open to the internet"; else pass "port $port is closed"; fi
-  done
+  if timeout 10 bash -c "exec 3<>/dev/tcp/$host/5432 && printf '\x00\x00\x00\x08\x04\xd2\x16\x2f' >&3 &&
+    head -c 1 <&3" 2>/dev/null | grep -q '[SN]'; then
+    flunk "PostgreSQL answers from the internet on port 5432"
+  else
+    pass "PostgreSQL doesn't answer from the internet (port 5432)"
+  fi
+  if [ "$(curl -s -m 10 -o /dev/null -w '%{http_code}' "http://$host:3000/")" = 000 ]; then
+    pass "the app doesn't answer from the internet but through HTTPS (port 3000)"
+  else
+    flunk "the app answers from the internet on port 3000"
+  fi
 
   # Turning keys off on our side, the server says which ways of signing in are left: only keys.
   # ssh fails here as it should, which mustn't stop the script.
