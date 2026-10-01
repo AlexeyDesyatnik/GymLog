@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "scripts": {
-    "db": "docker compose up -d --wait",
+    "db": "docker compose up -d --wait && npm run app-role:dev -w @gymlog/server",
     "dev": "npm run db && concurrently --names server,client --kill-others-on-fail \"npm run dev -w @gymlog/server\" \"npm run dev -w @gymlog/client\"",
     "owner-invite": "npm run db && npm run owner-invite:dev -w @gymlog/server",
     "owner-password": "npm run db && npm run owner-password:dev -w @gymlog/server",

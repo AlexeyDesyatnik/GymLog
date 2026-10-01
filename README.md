@@ -21,7 +21,7 @@ npm run typecheck       # check types
 
 Before the first `npm run test:e2e`, install its browser once with `npx playwright install chromium`.
 
-After changing the server's database schema (`packages/server/src/db/schema.ts`), write its migration with `npm run db:generate -w @gymlog/server`; the server applies migrations when it starts.
+After changing the server's database schema (`packages/server/src/db/schema.ts`), write its migration with `npm run db:generate -w @gymlog/server`; the server applies migrations when it starts. It connects as `gymlog_app`, a role that owns the database but isn't a superuser, as in production and in tests, so a migration needing a superuser's rights fails in development already; `npm run db` makes that role.
 
 The app's icon is drawn in `packages/client/icons.ts`; after changing it, `npm run icons -w @gymlog/client` writes the images into `packages/client/public/`.
 

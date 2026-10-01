@@ -1,5 +1,6 @@
 # Production (#15): the app, PostgreSQL and Caddy on the VPS. deploy/prod.sh copies this file to
-# /opt/gymlog on the server, next to the Caddyfile and an .env holding POSTGRES_PASSWORD.
+# /opt/gymlog on the server, next to the Caddyfile and an .env holding POSTGRES_PASSWORD (the
+# superuser's) and APP_DATABASE_PASSWORD (the app's role's).
 name: gymlog
 
 # Each container's log is capped, so a 1 GB server's disk doesn't fill up with them.
@@ -17,7 +18,9 @@ services:
     pull_policy: never
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://gymlog:${POSTGRES_PASSWORD:?}@postgres:5432/gymlog
+      # The app's own role, which owns the database but isn't a superuser (#39); prod.sh makes it
+      # before the app starts. The superuser's password stays out of the app's container.
+      DATABASE_URL: postgres://gymlog_app:${APP_DATABASE_PASSWORD:?}@postgres:5432/gymlog
       # For the links the Owner's commands print.
       APP_URL: https://easygymlog.ru
     depends_on:

@@ -2,7 +2,9 @@
 
 GymLog runs at https://easygymlog.ru (`www` redirects there), on a VPS in Russia (ADR 0005): Ubuntu 24.04 at Selectel, which also hosts the domain's DNS.
 
-The server runs three containers with Docker Compose (`deploy/compose.yaml`): the app, PostgreSQL and Caddy, which gets the HTTPS certificates itself (`deploy/Caddyfile`). The app is one image holding the server and the built client, so the two are always the same version. The image is built on the developer's computer and sent to the server over SSH, with no registry. The server holds only `/opt/gymlog` with the Compose file, the Caddyfile and an `.env` with `POSTGRES_PASSWORD`: no git, Node or sources. The `postgres` and `caddy` images come from Docker Hub through mirrors, since Docker Hub may be unreachable from Russia.
+The server runs three containers with Docker Compose (`deploy/compose.yaml`): the app, PostgreSQL and Caddy, which gets the HTTPS certificates itself (`deploy/Caddyfile`). The app is one image holding the server and the built client, so the two are always the same version. The image is built on the developer's computer and sent to the server over SSH, with no registry. The server holds only `/opt/gymlog` with the Compose file, the Caddyfile and an `.env` with the database's two passwords: no git, Node or sources.
+
+Only Caddy's ports (80 and 443) are open to the internet; PostgreSQL and the app are reached only inside Docker's network. The app connects to PostgreSQL as `gymlog_app`, a role of its own that owns GymLog's database but isn't a superuser, so it can't run programs or read files on the server (#39). Its password is `APP_DATABASE_PASSWORD`. The superuser `gymlog`, whose password is `POSTGRES_PASSWORD`, is only for administration, and the app's container never gets that password. SSH takes keys only. The `postgres` and `caddy` images come from Docker Hub through mirrors, since Docker Hub may be unreachable from Russia.
 
 Everything below runs from the developer's computer in Git Bash, with Docker running and SSH access to the server (`ssh deploy@easygymlog.ru` must work without a password prompt).
 
@@ -15,7 +17,7 @@ Everything below runs from the developer's computer in Git Bash, with Docker run
    deploy/prod.sh deploy
    ```
 
-The script refuses uncommitted changes and commits not pushed to `main`. It builds the image, tags it with the commit hash (e.g. `gymlog:9177403a1b2c`), sends it over SSH, copies the Compose file and the Caddyfile to the server, and restarts the app on the new version. The server applies database migrations as it starts.
+The script refuses uncommitted changes and commits not pushed to `main`. It builds the image, tags it with the commit hash (e.g. `gymlog:9177403a1b2c`), sends it over SSH, copies the Compose file and the Caddyfile to the server, and restarts the app on the new version. Before that, the new version makes sure the app's database role exists and owns everything in the database. The server applies database migrations as it starts, as that role.
 
 Users get the new version silently, never in the middle of a Workout. A phone learns of it when the app is started or comes back from the background, installs it in the background while the app runs, and opens it the next time the app is started after that, once the app was closed. So the first start after a deploy still shows the old version.
 
@@ -56,6 +58,22 @@ ssh deploy@easygymlog.ru "cd /opt/gymlog && docker compose logs --tail 100 app"
 
 `caddy` and `postgres` in place of `app` show the others' logs.
 
+## Security checks
+
+From the developer's computer:
+
+```bash
+deploy/prod.sh check
+```
+
+It checks from outside what an attacker would try first, and prints `FAIL` for anything wrong:
+
+- HTTPS answers, while PostgreSQL's port 5432 and the app's own port 3000 are closed.
+- SSH as `deploy` and as `root` offers no way of signing in but a key.
+- The app connects to the database as `gymlog_app`, not a superuser, and its container doesn't know the superuser's password.
+
+Run it after changing anything in `deploy/` or on the server.
+
 ## Setting up a new server
 
 Once, for a fresh Ubuntu 24.04 VPS with 1 GB of RAM or more:
@@ -68,8 +86,13 @@ Once, for a fresh Ubuntu 24.04 VPS with 1 GB of RAM or more:
    ssh root@<server> 'bash -s' < deploy/setup-server.sh
    ```
 
-   It adds 1 GB of swap, installs Docker from Ubuntu's packages with the Docker Hub mirrors, creates the `deploy` user (signing in with root's SSH keys), creates `/opt/gymlog` with an `.env` holding a random `POSTGRES_PASSWORD`, and lets only SSH, HTTP and HTTPS through the firewall.
+   It adds 1 GB of swap, installs Docker from Ubuntu's packages with the Docker Hub mirrors, creates the `deploy` user (signing in with root's SSH keys), creates `/opt/gymlog` with an `.env` holding random `POSTGRES_PASSWORD` and `APP_DATABASE_PASSWORD`, lets only SSH, HTTP and HTTPS through the firewall, and turns SSH passwords off (`/etc/ssh/sshd_config.d/10-gymlog.conf`): everyone signs in with a key, `root` too.
 4. Check that `ssh deploy@easygymlog.ru` works, then deploy as above. The first deploy pulls `postgres` and `caddy`, and Caddy gets the certificates within a minute.
 5. Set up the Owner with `deploy/prod.sh owner-invite`.
+6. Run `deploy/prod.sh check`.
+
+The script is safe to run again on a server already set up: it adds only what is missing and keeps the passwords there are. An `apt-get` upgrade of Docker on the way may stop the app for a few seconds.
 
 If neither mirror in `/etc/docker/daemon.json` works, replace them with one that does and run `systemctl restart docker`.
+
+If SSH ever stops letting you in, Selectel's web console (the server's page in the control panel) still reaches the server. Before changing SSH settings, keep one SSH session open and check a new sign-in from a second one.

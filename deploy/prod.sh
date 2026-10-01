@@ -7,6 +7,7 @@
 #   deploy/prod.sh owner-invite     print the Owner's first Invite
 #   deploy/prod.sh owner-password   print a Reset link for the Owner
 #   deploy/prod.sh status           show the containers and which version runs
+#   deploy/prod.sh check            check from outside that only what should be open is
 set -euo pipefail
 
 SERVER="${GYMLOG_SERVER:-deploy@easygymlog.ru}"
@@ -50,8 +51,24 @@ deploy() {
 set -euo pipefail
 version=$1
 [ -f .env ] || { echo "No .env in $PWD; see docs/deploy.md" >&2; exit 1; }
+set -a; . ./.env; set +a
+[ -n "${APP_DATABASE_PASSWORD:-}" ] || {
+  echo "No APP_DATABASE_PASSWORD in .env; run deploy/setup-server.sh again (docs/deploy.md)" >&2
+  exit 1
+}
 image_id() { docker image inspect --format '{{.Id}}' "$1" 2>/dev/null || true; }
 [ -n "$(image_id "gymlog:$version")" ] || { echo "gymlog:$version didn't arrive" >&2; exit 1; }
+# The app connects as a role of its own (#39): the new version makes it, and hands it the
+# database with all it already holds, before the app starts. Only this one-off run gets the
+# superuser's password, from the environment, so it isn't on a command line. It runs on the
+# Compose project's network, where postgres is.
+docker compose up -d --wait postgres
+export DATABASE_SUPERUSER_URL="postgres://gymlog:$POSTGRES_PASSWORD@postgres:5432/gymlog"
+docker run --rm --network gymlog_default -e DATABASE_SUPERUSER_URL -e APP_DATABASE_PASSWORD \
+  "gymlog:$version" node packages/server/src/app-role.ts || {
+  echo "The database wasn't handed to the app's role; the app still runs the version it ran before" >&2
+  exit 1
+}
 # The version running so far becomes the one to roll back to, unless it is this very one again.
 current=$(image_id gymlog:current)
 if [ -n "$current" ] && [ "$current" != "$(image_id "gymlog:$version")" ]; then
@@ -93,10 +110,69 @@ docker image ls gymlog --format '{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}'
 EOF
 }
 
+# Checks, from this computer, what an attacker would try first (#39); fails if any check does.
+check() {
+  local host=${SERVER#*@} failed=0 port user methods role super password_seen
+  pass() { echo "ok    $*"; }
+  flunk() {
+    echo "FAIL  $*"
+    failed=1
+  }
+  # Whether a TCP connection to this port of the server opens within 5 seconds.
+  port_open() { timeout 5 bash -c "exec 3<>/dev/tcp/$host/$1" 2>/dev/null; }
+
+  if port_open 443; then
+    pass "HTTPS (443) answers"
+  else
+    flunk "HTTPS (443) doesn't answer, so the closed ports below prove nothing"
+  fi
+  for port in 5432 3000; do
+    if port_open "$port"; then flunk "port $port is open to the internet"; else pass "port $port is closed"; fi
+  done
+
+  # Turning keys off on our side, the server says which ways of signing in are left: only keys.
+  for user in deploy root; do
+    methods=$(ssh -o BatchMode=yes -o PubkeyAuthentication=no -o ConnectTimeout=10 "$user@$host" true 2>&1 |
+      sed -n 's/.*Permission denied (\(.*\)).*/\1/p')
+    if [ "$methods" = publickey ]; then
+      pass "SSH as $user takes keys only"
+    else
+      flunk "SSH as $user offers: ${methods:-no answer}"
+    fi
+  done
+
+  # The app's own connection to the database, and whether its container knows the superuser's password.
+  read -r role super password_seen < <(on_server <<'EOF'
+docker compose exec -T app node --input-type=module -e '
+  import pg from "pg";
+  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+  await client.connect();
+  const { rows } = await client.query("select current_user as role, rolsuper from pg_roles where rolname = current_user");
+  await client.end();
+  const passwordSeen = "POSTGRES_PASSWORD" in process.env;
+  console.log(rows[0].role, rows[0].rolsuper, passwordSeen);
+'
+EOF
+  ) || true
+  if [ "${role:-}" = gymlog_app ] && [ "${super:-}" = false ]; then
+    pass "the app connects to the database as $role, not a superuser"
+  else
+    flunk "the app connects to the database as ${role:-?} (superuser: ${super:-?})"
+  fi
+  if [ "${password_seen:-}" = false ]; then
+    pass "the app's container doesn't know the superuser's password"
+  else
+    flunk "the app's container knows the superuser's password"
+  fi
+
+  return "$failed"
+}
+
 case "${1:-}" in
   deploy) deploy ;;
   rollback) rollback ;;
   owner-invite | owner-password) on_app "$1" ;;
   status) status ;;
-  *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1 ;;
+  check) check ;;
+  *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1 ;;
 esac

@@ -5,10 +5,14 @@ import { openJournal, type Journal } from "@gymlog/client/journal";
 import { uniqueJournalName } from "@gymlog/client/testing";
 import { createOwnerInvite, createOwnerResetLink, openDatabase } from "../users.ts";
 import { startServer } from "../server.ts";
+import { handDatabaseToApp } from "../database-role.ts";
+import { appDatabaseUrl } from "./postgres.ts";
 
 /** The real server on a database of its own. */
 export interface TestServer {
   url: string;
+  /** What the server connects to its database with. */
+  databaseUrl: string;
   /**
    * A new device syncing with this server, not signed in yet; its local store is empty, or
    * the one of this name when given.
@@ -20,6 +24,12 @@ export interface TestServer {
   ownerResetLink(): Promise<string>;
   /** A fresh Invite from the test's Owner, who becomes a User the first time. */
   inviteFromOwner(): Promise<string>;
+  /**
+   * Hands the database, with all it holds, to the app's role, as deploys do since #39, and starts
+   * the server on it again, connected as the app's role. This server stops, and its devices
+   * with it.
+   */
+  handDatabaseToApp(): Promise<TestServer>;
 }
 
 /** One browser: a Journal on its own local store and a cookie jar of its own. */
@@ -62,13 +72,27 @@ const DEVICE_TIMEOUT_MS = 2_000;
 
 let databaseCount = 0;
 
-/** Starts the server on a fresh database; it stops, with its devices, when the test ends. */
-export async function startTestServer(): Promise<TestServer> {
-  const databaseUrl = await createDatabase();
+/**
+ * Starts the server on a fresh database; it stops, with its devices, when the test ends. It
+ * connects as the app's role, as in production, or as the superuser, as it did before #39.
+ */
+export async function startTestServer({
+  connectAs = "app",
+}: { connectAs?: "app" | "superuser" } = {}): Promise<TestServer> {
+  const superuserUrl = await createDatabase();
+  if (connectAs === "app") await handDatabaseToApp(superuserUrl);
+  return serveDatabase(superuserUrl, connectAs);
+}
+
+async function serveDatabase(superuserUrl: string, connectAs: "app" | "superuser"): Promise<TestServer> {
+  const databaseUrl = connectAs === "app" ? appDatabaseUrl(superuserUrl) : superuserUrl;
   const server = await startServer({ databaseUrl, host: "127.0.0.1", port: 0 });
-  onTestFinished(() => server.close());
   const database = await openDatabase(databaseUrl);
-  onTestFinished(() => database.close());
+  const stop = once(async () => {
+    await server.close();
+    await database.close();
+  });
+  onTestFinished(stop);
   const ownerInvite = () => createOwnerInvite(database.db);
   /** The owner who invites the users of the test; signed in on a device of their own once needed. */
   let owner: Promise<Device> | undefined;
@@ -111,13 +135,25 @@ export async function startTestServer(): Promise<TestServer> {
 
   return {
     url: server.url,
+    databaseUrl,
     device(store = uniqueJournalName()) {
       return openDevice(store, deviceConnection(), tickingClock());
     },
     ownerInvite,
     ownerResetLink: () => createOwnerResetLink(database.db),
     inviteFromOwner,
+    async handDatabaseToApp() {
+      await stop();
+      await handDatabaseToApp(superuserUrl);
+      return serveDatabase(superuserUrl, "app");
+    },
   };
+}
+
+/** Runs this the first time only; later calls get the same promise. */
+function once(run: () => Promise<void>): () => Promise<void> {
+  let running: Promise<void> | undefined;
+  return () => (running ??= run());
 }
 
 /** The password tests give a login unless they choose one. */
@@ -210,7 +246,7 @@ function tickingClock(): Clock {
   };
 }
 
-/** A new, empty database in the test run's PostgreSQL. */
+/** A new, empty database in the test run's PostgreSQL; returns how the superuser connects to it. */
 async function createDatabase(): Promise<string> {
   const url = new URL(inject("postgresUrl"));
   const name = `test_${process.pid}_${++databaseCount}`;
