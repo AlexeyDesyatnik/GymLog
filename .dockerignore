@@ -1,0 +1,11 @@
+# Only what the image needs: the sources, without tests, local settings or build output.
+**/node_modules
+**/dist
+**/*.test.ts
+**/.env*
+.git
+.claude
+e2e
+test-results
+playwright-report
+packages/server/src/testing

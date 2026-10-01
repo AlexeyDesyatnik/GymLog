@@ -1,0 +1,63 @@
+# Production (#15): the app, PostgreSQL and Caddy on the VPS. deploy/prod.sh copies this file to
+# /opt/gymlog on the server, next to the Caddyfile and an .env holding POSTGRES_PASSWORD.
+name: gymlog
+
+# Each container's log is capped, so a 1 GB server's disk doesn't fill up with them.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  app:
+    # Built on the developer's computer and sent over SSH; prod.sh points `current` at the version
+    # being deployed and `previous` at the one before, for rolling back.
+    image: gymlog:current
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://gymlog:${POSTGRES_PASSWORD:?}@postgres:5432/gymlog
+      # For the links the Owner's commands print.
+      APP_URL: https://easygymlog.ru
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *logging
+
+  postgres:
+    # The same image and version as in development (compose.yaml) and tests.
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gymlog
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: gymlog
+    volumes:
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "gymlog"]
+      interval: 2s
+      retries: 15
+    logging: *logging
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # The HTTPS certificates; kept, so a restart doesn't ask for new ones.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    logging: *logging
+
+volumes:
+  postgres:
+  caddy_data:
+  caddy_config:

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { newLogin, signIn, signUp } from "./signIn.ts";
 
-test("Sets recorded on a phone offline reach the user's computer once the phone is back online", async ({
+test("the app opens on a phone with no connection, and Sets recorded there reach the user's computer once the phone is back online", async ({
   page: phone,
   context: phoneContext,
   browser,
@@ -13,7 +13,11 @@ test("Sets recorded on a phone offline reach the user's computer once the phone 
   await signUp(phone, baseURL!, user);
   await signIn(computer, user);
 
+  // The app is installed on the phone once its first visit has stored it.
+  await phone.evaluate(() => navigator.serviceWorker.ready);
   await phoneContext.setOffline(true);
+  await phone.reload();
+
   await phone.getByRole("button", { name: "Новая тренировка" }).click();
   await phone.getByRole("button", { name: "Написать план" }).click();
   await phone.getByLabel("План: одна строка — одно упражнение").fill("squat 100x5x2");

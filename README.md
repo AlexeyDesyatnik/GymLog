@@ -15,13 +15,15 @@ npm run db              # start only the dev database (PostgreSQL in Docker)
 npm run owner-invite    # create the Owner's first Invite in the dev database and print its link
 npm run owner-password  # print a Reset link for the Owner, in the dev database
 npm test                # run the test suite
-npm run test:e2e        # run the end-to-end flows in a phone-sized Chromium
+npm run test:e2e        # build the app and run the end-to-end flows in a phone-sized Chromium
 npm run typecheck       # check types
 ```
 
 Before the first `npm run test:e2e`, install its browser once with `npx playwright install chromium`.
 
 After changing the server's database schema (`packages/server/src/db/schema.ts`), write its migration with `npm run db:generate -w @gymlog/server`; the server applies migrations when it starts.
+
+The app's icon is drawn in `packages/client/icons.ts`; after changing it, `npm run icons -w @gymlog/client` writes the images into `packages/client/public/`.
 
 The root `package.json` overrides the esbuild under `@esbuild-kit/core-utils`, which drizzle-kit still pulls in, to 0.25 or newer: the version it asks for, 0.18, has a known vulnerability (GHSA-67mh-4wv8-2f99, #33). Because of the override, `npm ls` marks that esbuild "invalid"; this is expected. Remove the override once drizzle-kit no longer depends on `@esbuild-kit/esm-loader`.
 
@@ -52,3 +54,7 @@ and opens the link it prints. Users from before passwords (dev databases from #1
 If the phone can't connect on Windows, allow Node.js through Windows Defender Firewall for private networks (Windows usually asks the first time the dev server starts), and check that the Wi-Fi network is set to Private.
 
 The phone signs in like any other device, with a login and a password.
+
+## Production
+
+The app runs at https://easygymlog.ru. Deploying an update, rolling it back and the Owner's commands there are in `docs/deploy.md`.

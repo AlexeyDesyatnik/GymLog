@@ -1,0 +1,10 @@
+# HTTPS for the app (#15): Caddy gets and renews the certificates itself.
+
+easygymlog.ru {
+	encode zstd gzip
+	reverse_proxy app:3000
+}
+
+www.easygymlog.ru {
+	redir https://easygymlog.ru{uri} permanent
+}

@@ -19,6 +19,8 @@ jobs:
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+      # The image deploy/prod.sh sends to the server.
+      - run: docker build .
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

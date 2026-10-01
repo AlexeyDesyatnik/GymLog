@@ -8,5 +8,7 @@ const server = await startServer({
   // Names of the server's own, since the dev tools set PORT for the client's dev server.
   host: process.env.SERVER_HOST ?? "127.0.0.1",
   port: Number(process.env.SERVER_PORT ?? 3000),
+  // Set in the production image (Dockerfile); in development Vite serves the app.
+  clientDir: process.env.CLIENT_DIR,
 });
 console.log(`GymLog server at ${server.url}`);

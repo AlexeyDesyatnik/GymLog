@@ -1,4 +1,5 @@
 import cookie from "@fastify/cookie";
+import fastifyStatic from "@fastify/static";
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import {
@@ -40,6 +41,11 @@ export interface ServerOptions {
   host: string;
   /** 0 picks a free port. */
   port: number;
+  /**
+   * The built app (`npm run build`), served alongside /api in production, so the two are one
+   * site. In development Vite serves the app instead.
+   */
+  clientDir?: string;
 }
 
 export interface RunningServer {
@@ -63,8 +69,22 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const database = await openDatabase(options.databaseUrl);
   const db = database.db;
 
-  const app = Fastify();
+  // Requests come only through a proxy that says how the browser reached it: Caddy over HTTPS in
+  // production, Vite in development. Trusted, so session cookies are Secure behind HTTPS.
+  const app = Fastify({ trustProxy: true });
   await app.register(cookie);
+  if (options.clientDir) {
+    await app.register(fastifyStatic, {
+      root: options.clientDir,
+      // Each version's scripts and styles have names of their own and never change; everything
+      // else, the service worker above all, is checked anew so a new version gets installed.
+      cacheControl: false,
+      setHeaders(reply, path) {
+        const unchanging = /[\\/]assets[\\/]/.test(path);
+        reply.header("cache-control", unchanging ? "public, max-age=31536000, immutable" : "no-cache");
+      },
+    });
+  }
 
   /**
    * Once the server is closing, an answer to a request already under way ends its connection.
