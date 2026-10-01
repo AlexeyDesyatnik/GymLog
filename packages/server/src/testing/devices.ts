@@ -5,8 +5,7 @@ import { openJournal, type Journal } from "@gymlog/client/journal";
 import { uniqueJournalName } from "@gymlog/client/testing";
 import { createOwnerInvite, createOwnerResetLink, openDatabase } from "../users.ts";
 import { startServer } from "../server.ts";
-import { handDatabaseToApp } from "../database-role.ts";
-import { appDatabaseUrl } from "./postgres.ts";
+import { handToApp } from "./postgres.ts";
 
 /** The real server on a database of its own. */
 export interface TestServer {
@@ -80,12 +79,11 @@ export async function startTestServer({
   connectAs = "app",
 }: { connectAs?: "app" | "superuser" } = {}): Promise<TestServer> {
   const superuserUrl = await createDatabase();
-  if (connectAs === "app") await handDatabaseToApp(superuserUrl);
-  return serveDatabase(superuserUrl, connectAs);
+  return serveDatabase(connectAs === "app" ? await handToApp(superuserUrl) : superuserUrl, superuserUrl);
 }
 
-async function serveDatabase(superuserUrl: string, connectAs: "app" | "superuser"): Promise<TestServer> {
-  const databaseUrl = connectAs === "app" ? appDatabaseUrl(superuserUrl) : superuserUrl;
+/** The server connected with this URL to the database this superuser's URL connects to. */
+async function serveDatabase(databaseUrl: string, superuserUrl: string): Promise<TestServer> {
   const server = await startServer({ databaseUrl, host: "127.0.0.1", port: 0 });
   const database = await openDatabase(databaseUrl);
   const stop = once(async () => {
@@ -144,8 +142,7 @@ async function serveDatabase(superuserUrl: string, connectAs: "app" | "superuser
     inviteFromOwner,
     async handDatabaseToApp() {
       await stop();
-      await handDatabaseToApp(superuserUrl);
-      return serveDatabase(superuserUrl, "app");
+      return serveDatabase(await handToApp(superuserUrl), superuserUrl);
     },
   };
 }

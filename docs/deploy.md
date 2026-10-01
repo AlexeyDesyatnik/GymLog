@@ -72,14 +72,21 @@ It checks from outside what an attacker would try first, and prints `FAIL` for a
 - SSH as `deploy` and as `root` offers no way of signing in but a key.
 - The app connects to the database as `gymlog_app`, not a superuser, and its container doesn't know the superuser's password.
 
-Run it after changing anything in `deploy/` or on the server.
+Run it after changing anything in `deploy/` or on the server. The same checks by hand, in Git Bash:
+
+```bash
+timeout 5 bash -c 'exec 3<>/dev/tcp/easygymlog.ru/5432' && echo OPEN || echo closed
+ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password deploy@easygymlog.ru
+```
+
+The first must print `closed` (and `OPEN` for port 443). The second must end with `Permission denied (publickey)` without asking for a password; the same goes for `root@easygymlog.ru`.
 
 ## Setting up a new server
 
 Once, for a fresh Ubuntu 24.04 VPS with 1 GB of RAM or more:
 
 1. Point the A records of `easygymlog.ru` and `www.easygymlog.ru` at the server.
-2. Check that `ssh root@<server>` works with a key.
+2. Check that `ssh root@<server>` works with a key, and keep that session open until step 4 is done: the script turns SSH passwords off.
 3. Run
 
    ```bash
@@ -91,7 +98,7 @@ Once, for a fresh Ubuntu 24.04 VPS with 1 GB of RAM or more:
 5. Set up the Owner with `deploy/prod.sh owner-invite`.
 6. Run `deploy/prod.sh check`.
 
-The script is safe to run again on a server already set up: it adds only what is missing and keeps the passwords there are. An `apt-get` upgrade of Docker on the way may stop the app for a few seconds.
+The script is safe to run again on a server already set up: it adds only what is missing and keeps the passwords there are. An `apt-get` upgrade of Docker on the way may stop the app for a few seconds. A server set up before #39 gets the app's database password and the SSH settings that way: keep an SSH session open, run the script as in step 3, check that a new `ssh deploy@easygymlog.ru` and `ssh root@easygymlog.ru` still let you in, then deploy, which hands the database to the app's role, and run `deploy/prod.sh check`.
 
 If neither mirror in `/etc/docker/daemon.json` works, replace them with one that does and run `systemctl restart docker`.
 

@@ -1,6 +1,6 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import type { TestProject } from "vitest/node";
-import { APP_ROLE, ensureAppRole } from "../database-role.ts";
+import { APP_ROLE, ensureAppRole, handDatabaseToApp } from "../database-role.ts";
 
 /** The same image and version as the dev database in compose.yaml and the server's. */
 export const POSTGRES_IMAGE = "postgres:18-alpine";
@@ -40,8 +40,12 @@ export async function startTestPostgres(): Promise<TestPostgres> {
 /** The password of the app's role in tests. */
 const TEST_APP_PASSWORD = "the app's password";
 
-/** Connects to the same database as this superuser's URL, as the app's role, as the server does in production. */
-export function appDatabaseUrl(superuserUrl: string): string {
+/**
+ * Hands the database this superuser's URL connects to over to the app's role, as deploys do;
+ * returns how the app connects to it, as the server does in production.
+ */
+export async function handToApp(superuserUrl: string): Promise<string> {
+  await handDatabaseToApp(superuserUrl);
   const url = new URL(superuserUrl);
   url.username = APP_ROLE;
   url.password = TEST_APP_PASSWORD;

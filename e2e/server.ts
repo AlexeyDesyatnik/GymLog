@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 import { createOwnerInvite, openDatabase } from "../packages/server/src/users.ts";
-import { appDatabaseUrl, startTestPostgres } from "../packages/server/src/testing/postgres.ts";
-import { handDatabaseToApp } from "../packages/server/src/database-role.ts";
+import { handToApp, startTestPostgres } from "../packages/server/src/testing/postgres.ts";
 
 /** Where the end-to-end run's server listens; the app's dev server passes /api on to it. */
 export const E2E_SERVER_PORT = 4176;
@@ -14,8 +13,7 @@ export const E2E_SERVER_PORT = 4176;
 export default async function startServer(): Promise<() => Promise<void>> {
   const postgres = await startTestPostgres();
   // The server connects as the app's role, as in production.
-  await handDatabaseToApp(postgres.url);
-  const databaseUrl = appDatabaseUrl(postgres.url);
+  const databaseUrl = await handToApp(postgres.url);
   const server = spawn(process.execPath, ["packages/server/src/main.ts"], {
     env: {
       ...process.env,

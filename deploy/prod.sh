@@ -131,9 +131,10 @@ check() {
   done
 
   # Turning keys off on our side, the server says which ways of signing in are left: only keys.
+  # ssh fails here as it should, which mustn't stop the script.
   for user in deploy root; do
     methods=$(ssh -o BatchMode=yes -o PubkeyAuthentication=no -o ConnectTimeout=10 "$user@$host" true 2>&1 |
-      sed -n 's/.*Permission denied (\(.*\)).*/\1/p')
+      sed -n 's/.*Permission denied (\(.*\)).*/\1/p') || true
     if [ "$methods" = publickey ]; then
       pass "SSH as $user takes keys only"
     else

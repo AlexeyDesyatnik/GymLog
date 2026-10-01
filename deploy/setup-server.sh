@@ -43,6 +43,8 @@ install -m 600 -o deploy -g deploy /root/.ssh/authorized_keys /home/deploy/.ssh/
 # Where the Compose file, the Caddyfile and the .env live.
 install -d -o deploy -g deploy /opt/gymlog
 [ -f /opt/gymlog/.env ] || install -m 600 -o deploy -g deploy /dev/null /opt/gymlog/.env
+# A line added below must not run on from one edited by hand without its line end.
+[ -z "$(tail -c 1 /opt/gymlog/.env)" ] || echo >> /opt/gymlog/.env
 # The database's passwords: the superuser's, and the app's own role's (#39). Each is made once
 # and kept. Hex only, so they can stand in a database URL as they are.
 for name in POSTGRES_PASSWORD APP_DATABASE_PASSWORD; do
@@ -58,18 +60,26 @@ ufw --force enable
 
 # SSH takes keys only, so there is no password to guess (#39); root may still sign in, with a key.
 # sshd keeps the first value it reads, so this file comes before 50-cloud-init.conf, which may
-# turn passwords on. The check below fails the script if some other file still wins.
+# turn passwords on.
 cat > /etc/ssh/sshd_config.d/10-gymlog.conf <<'EOF'
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin prohibit-password
 EOF
-sshd -t
-systemctl reload ssh
+# The settings as sshd would apply them to a sign-in as this user, Match blocks included.
 # sshd -T may name prohibit-password by its older name, without-password.
-effective=$(sshd -T | grep -E '^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin) ' |
-  sed 's/without-password/prohibit-password/' | sort)
+ssh_settings() {
+  sshd -T -C "user=$1,host=example.com,addr=203.0.113.1" |
+    grep -E '^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin) ' |
+    sed 's/without-password/prohibit-password/' | sort
+}
 expected=$'kbdinteractiveauthentication no\npasswordauthentication no\npermitrootlogin prohibit-password'
-[ "$effective" = "$expected" ] || { echo "SSH still allows more than keys:"$'\n'"$effective" >&2; exit 1; }
+# Checked before sshd reloads, so a mistake never goes live.
+sshd -t || { rm /etc/ssh/sshd_config.d/10-gymlog.conf; exit 1; }
+for user in root deploy; do
+  effective=$(ssh_settings "$user")
+  [ "$effective" = "$expected" ] || { echo "SSH would still let $user in without a key:"$'\n'"$effective" >&2; exit 1; }
+done
+systemctl reload ssh
 
 echo "The server is ready; deploy with deploy/prod.sh deploy"

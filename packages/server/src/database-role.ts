@@ -30,32 +30,44 @@ export async function handDatabaseToApp(superuserUrl: string): Promise<void> {
   await withClient(superuserUrl, async (client) => {
     // One statement, so all of it happens or none. The superuser the postgres image creates owns
     // the system catalogs too, so REASSIGN OWNED can't be used: each of GymLog's own schemas,
-    // tables and sequences is given away instead.
+    // tables, sequences, views, types and functions is given away instead.
     await client.query(`DO $$
       DECLARE
         me oid := (SELECT oid FROM pg_roles WHERE rolname = current_user);
+        -- GymLog's own schemas, not PostgreSQL's.
+        schemas oid[] := ARRAY(SELECT oid FROM pg_namespace
+          WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema');
         object record;
       BEGIN
         EXECUTE format('ALTER DATABASE %I OWNER TO ${APP_ROLE}', current_database());
-        FOR object IN SELECT nspname FROM pg_namespace
-          WHERE nspowner = me AND nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema'
-        LOOP
+        FOR object IN SELECT nspname FROM pg_namespace WHERE nspowner = me AND oid = ANY (schemas) LOOP
           EXECUTE format('ALTER SCHEMA %I OWNER TO ${APP_ROLE}', object.nspname);
         END LOOP;
-        -- Tables first: a table takes the sequences of its own columns along.
-        FOR object IN SELECT c.oid::regclass AS name, c.relkind FROM pg_class c
-          JOIN pg_namespace n ON n.oid = c.relnamespace
-          WHERE c.relowner = me AND c.relkind IN ('r', 'p', 'S')
-            AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
-          ORDER BY c.relkind = 'S'
+        -- Tables first: a table takes its indexes and the sequences of its own columns along, so
+        -- each is looked at again when its turn comes.
+        FOR object IN SELECT oid, oid::regclass AS name, relkind FROM pg_class
+          WHERE relowner = me AND relnamespace = ANY (schemas) AND relkind IN ('r', 'p', 'v', 'm', 'f', 'S', 'c')
+          ORDER BY relkind = 'S'
         LOOP
-          CONTINUE WHEN object.relkind = 'S'
-            AND (SELECT relowner FROM pg_class WHERE oid = object.name) <> me;
-          EXECUTE format('ALTER %s %s OWNER TO ${APP_ROLE}',
-            CASE object.relkind WHEN 'S' THEN 'SEQUENCE' ELSE 'TABLE' END, object.name);
+          CONTINUE WHEN (SELECT relowner FROM pg_class WHERE oid = object.oid) <> me;
+          EXECUTE format('ALTER %s %s OWNER TO ${APP_ROLE}', CASE object.relkind
+            WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW' WHEN 'f' THEN 'FOREIGN TABLE'
+            WHEN 'S' THEN 'SEQUENCE' WHEN 'c' THEN 'TYPE' ELSE 'TABLE' END, object.name);
         END LOOP;
-        IF EXISTS (SELECT FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-          WHERE c.relowner = me AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema')
+        -- Enums, domains and ranges; an array type goes along with the type it holds.
+        FOR object IN SELECT oid::regtype AS name FROM pg_type
+          WHERE typowner = me AND typnamespace = ANY (schemas) AND typtype IN ('e', 'd', 'r')
+        LOOP
+          EXECUTE format('ALTER TYPE %s OWNER TO ${APP_ROLE}', object.name);
+        END LOOP;
+        FOR object IN SELECT oid::regprocedure AS name FROM pg_proc
+          WHERE proowner = me AND pronamespace = ANY (schemas) AND prokind <> 'a'
+        LOOP
+          EXECUTE format('ALTER ROUTINE %s OWNER TO ${APP_ROLE}', object.name);
+        END LOOP;
+        IF EXISTS (SELECT FROM pg_class WHERE relowner = me AND relnamespace = ANY (schemas))
+          OR EXISTS (SELECT FROM pg_type WHERE typowner = me AND typnamespace = ANY (schemas))
+          OR EXISTS (SELECT FROM pg_proc WHERE proowner = me AND pronamespace = ANY (schemas))
         THEN
           RAISE EXCEPTION 'Something in the database is still owned by %, which only the app''s role should own', current_user;
         END IF;
