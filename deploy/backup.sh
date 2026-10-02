@@ -2,11 +2,11 @@
 # Backs GymLog's database up (#16). The gymlog-backup timer runs it every night at 04:00 Moscow
 # time, as deploy, in /opt/gymlog; deploy/prod.sh copies it there with s3.sh. See docs/deploy.md.
 #
-#   bash backup.sh            make tonight's backup; email the owner if it fails, and on Sundays
+#   bash backup.sh            make tonight's backup; email the owner if it fails, and weekly
 #   bash backup.sh test-mail  send a test email
 #
 # Every night: a dump of the database, read through to the end, goes to Selectel's daily bucket.
-# On Sundays it is also restored into a throwaway PostgreSQL first, then goes to Selectel's and
+# Weekly it is also restored into a throwaway PostgreSQL first, then goes to Selectel's and
 # Yandex's weekly buckets. Each run adds a line to backups.log, which `prod.sh status` shows.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -17,11 +17,15 @@ set +a
 . ./s3.sh
 
 today=$(TZ=Europe/Moscow date +%F)
-sunday=$([ "$(TZ=Europe/Moscow date +%u)" = 7 ] && echo yes || echo no)
+# The weekly dump is made on Sundays, or on the first night after that it can be, so a Sunday that
+# failed or was missed while the server was off is made up for.
+last_sunday=$(TZ=Europe/Moscow date -d "$today -$(($(TZ=Europe/Moscow date +%u) % 7)) days" +%F)
+last_weekly=$( (grep ' ok .*weekly too' backups.log 2>/dev/null || true) | tail -n 1 | cut -c 1-10)
+weekly=$([[ $last_weekly < $last_sunday ]] && echo yes || echo no)
 
 # An email from the notifications mailbox to the owner, over Yandex's SMTP; port 25 is closed.
 send_mail() {
-  local subject=$1 body=$2 message
+  local subject=$1 body=$2 message failed=0
   message=$(mktemp)
   # The subject in UTF-8 has to be encoded; curl turns the line ends into CRLF and escapes lines
   # starting with a dot.
@@ -38,8 +42,9 @@ $body
 EOF
   printf 'user = "%s:%s"\n' "$MAIL_FROM" "$MAIL_PASSWORD" |
     curl -sS --ssl-reqd --crlf --max-time 60 -K - --url smtps://smtp.yandex.ru:465 \
-      --mail-from "$MAIL_FROM" --mail-rcpt "$MAIL_TO" -T "$message"
+      --mail-from "$MAIL_FROM" --mail-rcpt "$MAIL_TO" -T "$message" || failed=$?
   rm -f "$message"
+  return "$failed"
 }
 
 # How many rows each table holds, one "schema.table rows" a line, in the database psql reaches
@@ -54,9 +59,9 @@ row_counts() {
     ORDER BY 1"
 }
 
-# The backup itself, in a bash of its own so that set -e holds; the caller reports how it went.
+# The backup itself, in a bash of its own so that set -e holds; report_backup tells how it went.
 # Each step is announced, so the tail of the output says where it stopped.
-backup() {
+make_backup() {
   local work dump image check=gymlog-restore-check
   work=$(mktemp -d)
   dump=$work/gymlog.dump
@@ -80,19 +85,24 @@ backup() {
   echo "== uploading to Selectel"
   s3 selectel "$SELECTEL_DAILY/$today.dump" -T "$dump" > /dev/null
 
-  if [ "$sunday" = yes ]; then
+  if [ "$weekly" = yes ]; then
     echo "== test restore"
-    # The image production runs, in a container with no network and little memory, removed on exit.
+    # The image production runs, in a container with no network and at most 256 MB of memory,
+    # swap included, removed on exit.
     image=$(docker inspect --format '{{.Config.Image}}' "$(docker compose ps -q postgres)")
     docker rm -f "$check" >/dev/null 2>&1 || true
-    docker run -d --name "$check" --pull never --network none --memory 256m \
+    docker run -d --name "$check" --pull never --network none --memory 256m --memory-swap 256m \
       -e POSTGRES_PASSWORD=check "$image" > /dev/null
     # It answers over TCP only once it is set up and restarted for good.
     for _ in $(seq 60); do
       docker exec "$check" pg_isready -q -h 127.0.0.1 -U postgres && break
       sleep 1
     done
+    docker exec "$check" pg_isready -q -h 127.0.0.1 -U postgres ||
+      { echo "The test restore's PostgreSQL didn't start in a minute" >&2; return 1; }
+    local started=$SECONDS
     docker exec -i "$check" pg_restore -U postgres -d postgres --no-owner --no-acl --exit-on-error < "$dump"
+    echo "Restored in $((SECONDS - started)) s"
     local restored table rows got
     restored=$(row_counts docker exec "$check" psql -h 127.0.0.1 -U postgres -d postgres)
     while read -r table rows; do
@@ -106,32 +116,39 @@ backup() {
     done <<< "$before"
     echo "Restored rows:"
     sed 's/^/  /' <<< "$restored"
-    echo "Memory of the test restore's PostgreSQL: $(docker stats --no-stream --format '{{.MemUsage}}' "$check")"
+    # The most the container used at any moment, from its own cgroup.
+    echo "Most memory the test restore's PostgreSQL used: $(docker exec "$check" cat /sys/fs/cgroup/memory.peak |
+      awk '{ printf "%.0f MB", $1 / 1048576 }') of 256 MB"
 
     echo "== uploading to the weekly buckets"
     s3 selectel "$SELECTEL_WEEKLY/$today.dump" -T "$dump" > /dev/null
     s3 yandex "$YANDEX_WEEKLY/$today.dump" -T "$dump" > /dev/null
   fi
 
-  echo "ok $(stat -c %s "$dump") bytes$([ "$sunday" = yes ] && echo ", weekly too")"
+  echo "ok $(stat -c %s "$dump") bytes$([ "$weekly" = yes ] && echo ", weekly too")"
 }
 
-# Makes the backup, notes it in backups.log and tells the owner what they need to know.
-run() {
+# Makes the backup in a bash of its own, notes it in backups.log and tells the owner what they need
+# to know.
+report_backup() {
   local output result
+  # One backup at a time: a run by hand during the timer's would share the files and the container.
+  exec 9> backups.lock
+  flock -n 9 || { echo "Another backup is running" >&2; return 1; }
   output=$(mktemp)
   # shellcheck disable=SC2064
   trap "rm -f '$output'" EXIT
-  if bash "$0" backup > "$output" 2>&1; then
+  if bash "$0" make > "$output" 2>&1; then
     cat "$output"
     result=$(tail -n 1 "$output")
     echo "$(TZ=Europe/Moscow date -Iseconds) $result" >> backups.log
-    if [ "$sunday" = yes ]; then
+    if [ "$weekly" = yes ]; then
       send_mail "GymLog: резервные копии за неделю" "Копии за последние 7 дней:
 $(tail -n 7 backups.log)
 
 Проверочное восстановление сегодняшней копии:
-$(sed -n '/^== test restore/,/^== uploading to the weekly/p' "$output" | sed '1d;$d')"
+$(sed -n '/^== test restore/,/^== uploading to the weekly/p' "$output" | sed '1d;$d')" ||
+        echo "The weekly email couldn't be sent" >&2
     fi
   else
     cat "$output" >&2
@@ -150,8 +167,8 @@ $(tail -n 7 backups.log)
 }
 
 case "${1:-}" in
-  "") run ;;
-  backup) backup ;;
+  "") report_backup ;;
+  make) make_backup ;;
   test-mail) send_mail "GymLog: проверка уведомлений" "Это проверочное письмо: уведомления о резервных копиях GymLog доходят." ;;
   *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1 ;;
 esac

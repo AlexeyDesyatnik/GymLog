@@ -35,16 +35,26 @@ s3() {
       ;;
     *) echo "s3: no storage $storage" >&2; return 1 ;;
   esac
-  # The keys reach curl through its standard input, not the command line, which anyone on the
-  # machine could read. The body isn't signed (S3 allows that over HTTPS), so a dump is never read
-  # twice.
-  printf 'user = "%s:%s"\n' "$access" "$secret" |
-    curl -sS --fail-with-body --retry 3 --max-time 600 -K - \
-      --aws-sigv4 "aws:amz:$region:s3" -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" \
-      "$@" "$endpoint/$path"
+  # Tried three times, in case the network fails for a moment. Not with curl's --retry: on Windows,
+  # curl 8.14 with it says a 404 succeeded.
+  local attempt
+  for attempt in 1 2 3; do
+    # The keys reach curl through its standard input, not the command line, which anyone on the
+    # machine could read. The body isn't signed (S3 allows that over HTTPS), so a dump is never
+    # read twice.
+    printf 'user = "%s:%s"\n' "$access" "$secret" |
+      curl -sS --fail-with-body --max-time 600 -K - \
+        --aws-sigv4 "aws:amz:$region:s3" -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" \
+        "$@" "$endpoint/$path" && return 0
+    [ "$attempt" = 3 ] || sleep 5
+  done
+  return 1
 }
 
 # The names of the dumps in a bucket, oldest first; enough for 1000, about 19 years of Sundays.
 s3_dumps() {
-  s3 "$1" "$2?list-type=2" | grep -o '<Key>[^<]*</Key>' | sed 's/<[^>]*>//g' | sort
+  local listing
+  listing=$(s3 "$1" "$2?list-type=2")
+  # An empty bucket lists no keys, which is no error.
+  { grep -o '<Key>[^<]*</Key>' <<< "$listing" || true; } | sed 's/<[^>]*>//g' | sort
 }

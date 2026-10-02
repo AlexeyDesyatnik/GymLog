@@ -89,11 +89,11 @@ Every night at 04:00 Moscow time, a systemd timer on the server (`gymlog-backup.
 1. `pg_dump` of the database (custom format, without owners and privileges), made while the app runs.
 2. The dump is read through to the end with `pg_restore`; a dump that can't be read doesn't count.
 3. It goes to Selectel's bucket `gymlog-backup-daily`, which deletes each dump after 30 days by itself.
-4. On Sundays it is first restored into a throwaway PostgreSQL container (no network, at most 256 MB of memory, about 40 MB used), whose tables and row counts are checked against production, and then goes to Selectel's `gymlog-backup-weekly` and Yandex Object Storage's `gymlog-backup-weekly-yandex`, which keep it for good and keep older versions of anything overwritten.
+4. Weekly, it is first restored into a throwaway PostgreSQL container (no network, at most 256 MB of memory with swap; about 90 MB at the peak), whose tables and row counts are checked against production, and then goes to Selectel's `gymlog-backup-weekly` and Yandex Object Storage's `gymlog-backup-weekly-yandex`, which keep it for good and keep older versions of anything overwritten. The weekly dump is made on Sunday night, or on the first night after it that a backup succeeds, if Sunday's failed or the server was off.
 
-Each run adds a line to `/opt/gymlog/backups.log`. A failure sends an email at once, with the end of the script's output; every Sunday an email sums the week up. The mails come from the notifications mailbox at Yandex Mail, over `smtp.yandex.ru:465` (port 25 is closed at Selectel, and Telegram's API can't be reached from the server). `deploy/prod.sh status` shows the last runs, and both `status` and `deploy` warn when the last good backup is more than a day old.
+Each run adds a line to `/opt/gymlog/backups.log`. A failure sends an email at once, with the end of the script's output; each weekly run sends an email that sums the week up, with the test restore's time and memory. The mails come from the notifications mailbox at Yandex Mail, over `smtp.yandex.ru:465` (port 25 is closed at Selectel, and Telegram's API can't be reached from the server). `deploy/prod.sh status` shows the last runs, and both `status` and `deploy` warn when the last good backup is more than a day old.
 
-The server's keys can only upload: Selectel's by the buckets' access policies (`PutObject` only), Yandex's by the role `storage.uploader`, which can't delete. So whoever took the server over couldn't wipe the backups. Nothing is encrypted.
+The server's keys can only upload: Selectel's by the buckets' access policies (`PutObject` only), Yandex's by the role `storage.uploader`, which can't delete. So whoever took the server over couldn't delete the backups. They could overwrite the daily dumps with junk, but not the weekly ones, whose buckets keep the older versions. Nothing is encrypted.
 
 ### Keys, and what to keep off the server
 
@@ -121,7 +121,7 @@ deploy/prod.sh restore 2026-10-02
 
 `backups` lists the dumps in Selectel (`--from yandex`: in Yandex). `restore` takes a date, from Selectel's daily bucket or else its weekly one (`--from yandex` for Yandex's), or a dump file. It first saves the production database as it is to `deploy/backups/before-restore-<time>.dump`, asks to type `restore`, reads the dump through, stops the app, makes the database anew from the dump, hands it to `gymlog_app` as deploys do, and starts the app. A wrong restore is undone with `deploy/prod.sh restore deploy/backups/before-restore-<time>.dump`.
 
-Records written after the dump come back from the devices that hold them (#40). What lives only on the server comes back as it was in the dump: Users, Logins, passwords, Invites and sessions. A device whose session is newer than the dump signs in again; a User created after the dump has to be invited again.
+Once #40 is done, records written after the dump come back from the devices that hold them; until then they are lost on the server, and devices that synced them get out of step with it. What lives only on the server comes back as it was in the dump: Users, Logins, passwords, Invites and sign-in sessions. A device that signed in after the dump signs in again; a User created after the dump has to be invited again.
 
 When things go wrong:
 

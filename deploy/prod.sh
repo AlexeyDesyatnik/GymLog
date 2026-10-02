@@ -17,6 +17,8 @@ set -euo pipefail
 SERVER="${GYMLOG_SERVER:-deploy@easygymlog.ru}"
 # Where the Compose file, the Caddyfile and the .env live on the server.
 DIR=/opt/gymlog
+# What the nightly backup runs on the server, besides its settings (#16).
+BACKUP_FILES=(deploy/backup.sh deploy/s3.sh)
 
 cd "$(dirname "$0")/.."
 
@@ -48,7 +50,7 @@ deploy() {
 
   echo "Sending it to $SERVER"
   docker save "gymlog:$version" | gzip | ssh "$SERVER" "gunzip | docker load"
-  scp -q deploy/compose.yaml deploy/Caddyfile deploy/backup.sh deploy/s3.sh "$SERVER:$DIR/"
+  scp -q deploy/compose.yaml deploy/Caddyfile "${BACKUP_FILES[@]}" "$SERVER:$DIR/"
 
   echo "Starting it"
   on_server "$version" <<'EOF'
@@ -119,13 +121,14 @@ EOF
   backup_warning
 }
 
-# Warns loudly when the last good backup is more than a day old, or there is none.
+# Warns loudly when the last good backup is more than a day old, or there is none. Only warns: a
+# deploy that went well stays a success even when the server can't be asked.
 backup_warning() {
   local last
-  last=$(on_server <<'EOF'
+  last=$(on_server <<'SCRIPT'
 grep ' ok ' backups.log 2>/dev/null | tail -n 1 | cut -d ' ' -f 1
-EOF
-  )
+SCRIPT
+  ) || { echo "WARNING: couldn't see when the last backup was made" >&2; return 0; }
   if [ -z "$last" ]; then
     echo "WARNING: the server has made no backup yet (docs/deploy.md, Backups)" >&2
   elif [ $(($(date +%s) - $(date -d "$last" +%s))) -gt $((26 * 3600)) ]; then
@@ -137,14 +140,14 @@ EOF
 # server, then a test email.
 backup_setup() {
   [ -f deploy/secrets/backup.env ] || fail "no deploy/secrets/backup.env; see docs/deploy.md, Backups"
-  scp -q deploy/backup.sh deploy/s3.sh "$SERVER:$DIR/"
+  scp -q "${BACKUP_FILES[@]}" "$SERVER:$DIR/"
   ssh "$SERVER" "umask 077 && cat > $DIR/backup.env" < deploy/secrets/backup.env
   ssh -n "$SERVER" "cd $DIR && bash backup.sh test-mail"
   echo "Sent a test email; check that it arrived"
 }
 
-# The read keys, which stay on this computer.
-read_keys() {
+# The keys that read the backups, which stay on this computer, and the storages they read.
+load_read_keys() {
   [ -f deploy/secrets/restore.env ] || fail "no deploy/secrets/restore.env; see docs/deploy.md, Backups"
   set -a
   . deploy/secrets/restore.env
@@ -153,8 +156,8 @@ read_keys() {
 }
 
 backups() {
-  read_keys
-  if [ "${1:-}" = "--from" ] && [ "${2:-}" = yandex ]; then
+  load_read_keys
+  if [ "$1" = yandex ]; then
     echo "Yandex, weekly:"
     s3_dumps yandex "$YANDEX_WEEKLY" | sed 's/^/  /'
   else
@@ -169,42 +172,42 @@ backups() {
 # storage. The database as it was is saved here first, so a wrong restore can be undone by
 # restoring that file.
 restore() {
-  local source=${1:-} from=selectel dump saved
+  local source=$1 from=$2 dump saved answer
   [ -n "$source" ] || fail "restore what? A date, as in deploy/prod.sh backups, or a dump file"
-  [ "${2:-}" != "--from" ] || from=${3:-}
   mkdir -p deploy/backups
   if [ -f "$source" ]; then
     dump=$source
   else
     [[ $source =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || fail "$source is neither a file nor a date like 2026-10-02"
-    read_keys
+    load_read_keys
     dump=deploy/backups/$from-$source.dump
     case $from in
       selectel)
-        s3 selectel "$SELECTEL_DAILY/$source.dump" -o "$dump" 2>/dev/null ||
+        if ! s3 selectel "$SELECTEL_DAILY/$source.dump" -o "$dump"; then
+          echo "Not in the daily bucket; trying the weekly one"
           s3 selectel "$SELECTEL_WEEKLY/$source.dump" -o "$dump" ||
-          { rm -f "$dump"; fail "Selectel has no dump of $source; deploy/prod.sh backups lists them"; }
+            { rm -f "$dump"; fail "Selectel gave no dump of $source; deploy/prod.sh backups lists them"; }
+        fi
         ;;
       yandex)
         s3 yandex "$YANDEX_WEEKLY/$source.dump" -o "$dump" ||
-          { rm -f "$dump"; fail "Yandex has no dump of $source; deploy/prod.sh backups --from yandex lists them"; }
+          { rm -f "$dump"; fail "Yandex gave no dump of $source; deploy/prod.sh backups --from yandex lists them"; }
         ;;
-      *) fail "--from takes selectel or yandex" ;;
     esac
   fi
 
   saved=deploy/backups/before-restore-$(date +%Y-%m-%dT%H%M%S).dump
-  echo "Saving the database as it is now to $saved"
-  ssh "$SERVER" "cd $DIR && docker compose exec -T postgres pg_dump -U gymlog -d gymlog -Fc --no-owner --no-acl" > "$saved"
+  echo "Saving the database on $SERVER as it is now to $saved"
+  ssh -n "$SERVER" "cd $DIR && docker compose exec -T postgres pg_dump -U gymlog -d gymlog -Fc --no-owner --no-acl" > "$saved"
 
   echo
-  echo "This replaces everything in the production database with $dump ($(wc -c < "$dump") bytes)."
+  echo "This replaces everything in the database on $SERVER with $dump ($(wc -c < "$dump") bytes)."
   echo "The app stops for a minute. The database as it is now is in $saved."
   read -r -p "Type restore to go on: " answer
   [ "$answer" = restore ] || fail "nothing changed"
 
   ssh "$SERVER" "cat > $DIR/restore.dump" < "$dump"
-  on_server <<'EOF' || fail "the restore failed; deploy/prod.sh restore with the saved file puts the database back"
+  on_server <<'SCRIPT' || fail "the restore failed; deploy/prod.sh restore $saved puts the database back"
 set -euo pipefail
 set -a; . ./.env; set +a
 trap 'rm -f restore.dump' EXIT
@@ -221,7 +224,7 @@ export DATABASE_SUPERUSER_URL="postgres://gymlog:$POSTGRES_PASSWORD@postgres:543
 docker run --rm --network gymlog_default -e DATABASE_SUPERUSER_URL -e APP_DATABASE_PASSWORD \
   gymlog:current node packages/server/src/app-role.ts
 docker compose up -d --wait --wait-timeout 120
-EOF
+SCRIPT
   echo "Restored from $dump"
   status
 }
@@ -294,6 +297,21 @@ EOF
   return "$failed"
 }
 
+# `--from yandex` anywhere among the arguments picks the storage; the rest stay in order.
+from=selectel
+args=()
+while [ $# -gt 0 ]; do
+  if [ "$1" = --from ]; then
+    [ "${2:-}" = selectel ] || [ "${2:-}" = yandex ] || fail "--from takes selectel or yandex"
+    from=$2
+    shift 2
+  else
+    args+=("$1")
+    shift
+  fi
+done
+set -- "${args[@]}"
+
 case "${1:-}" in
   deploy) deploy ;;
   rollback) rollback ;;
@@ -302,7 +320,7 @@ case "${1:-}" in
   check) check ;;
   backup-setup) backup_setup ;;
   backup) ssh -n "$SERVER" "cd $DIR && bash backup.sh" ;;
-  backups) backups "${@:2}" ;;
-  restore) restore "${@:2}" ;;
+  backups) backups "$from" ;;
+  restore) restore "${2:-}" "$from" ;;
   *) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1 ;;
 esac
