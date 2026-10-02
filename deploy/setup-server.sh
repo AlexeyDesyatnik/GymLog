@@ -51,6 +51,33 @@ for name in POSTGRES_PASSWORD APP_DATABASE_PASSWORD; do
   grep -q "^$name=" /opt/gymlog/.env || echo "$name=$(openssl rand -hex 24)" >> /opt/gymlog/.env
 done
 
+# The nightly backup (#16): backup.sh, which deploys copy to /opt/gymlog, runs as deploy at 04:00
+# Moscow time, or as soon as the server is up again if it was off then.
+cat > /etc/systemd/system/gymlog-backup.service <<'EOF'
+[Unit]
+Description=GymLog's nightly backup (docs/deploy.md)
+After=docker.service
+
+[Service]
+Type=oneshot
+User=deploy
+WorkingDirectory=/opt/gymlog
+ExecStart=/bin/bash /opt/gymlog/backup.sh
+EOF
+cat > /etc/systemd/system/gymlog-backup.timer <<'EOF'
+[Unit]
+Description=GymLog's nightly backup at 04:00 Moscow time
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 Europe/Moscow
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+systemctl enable --now gymlog-backup.timer
+
 # Only SSH, HTTP and HTTPS (HTTP/3 too) are open.
 ufw allow OpenSSH
 ufw allow 80/tcp

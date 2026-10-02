@@ -2,7 +2,7 @@
 
 GymLog runs at https://easygymlog.ru (`www` redirects there), on a VPS in Russia (ADR 0005): Ubuntu 24.04 at Selectel, which also hosts the domain's DNS.
 
-The server runs three containers with Docker Compose (`deploy/compose.yaml`): the app, PostgreSQL and Caddy, which gets the HTTPS certificates itself (`deploy/Caddyfile`). The app is one image holding the server and the built client, so the two are always the same version. The image is built on the developer's computer and sent to the server over SSH, with no registry. The server holds only `/opt/gymlog` with the Compose file, the Caddyfile and an `.env` with the database's two passwords: no git, Node or sources.
+The server runs three containers with Docker Compose (`deploy/compose.yaml`): the app, PostgreSQL and Caddy, which gets the HTTPS certificates itself (`deploy/Caddyfile`). The app is one image holding the server and the built client, so the two are always the same version. The image is built on the developer's computer and sent to the server over SSH, with no registry. The server holds only `/opt/gymlog` with the Compose file, the Caddyfile, an `.env` with the database's two passwords, and the backup script with its settings (see Backups): no git, Node or sources.
 
 Only Caddy's ports (80 and 443) are open to the internet; PostgreSQL and the app are reached only inside Docker's network. The app connects to PostgreSQL as `gymlog_app`, a role of its own that owns GymLog's database but isn't a superuser, so it can't run programs or read files on the server (#39). Its password is `APP_DATABASE_PASSWORD`. The superuser `gymlog`, whose password is `POSTGRES_PASSWORD`, is only for administration, and the app's container never gets that password. SSH takes keys only. The `postgres` and `caddy` images come from Docker Hub through mirrors, since Docker Hub may be unreachable from Russia.
 
@@ -82,6 +82,53 @@ ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password deploy@easyg
 
 The first asks PostgreSQL for SSL and must print nothing: an open port would answer `S` or `N`. The second must print `000`, no HTTP answer. A plain "does the connection open" check isn't enough: a VPN or proxy on the way may accept a connection to any port itself. The third must end with `Permission denied (publickey)` without asking for a password; the same goes for `root@easygymlog.ru`.
 
+## Backups
+
+Every night at 04:00 Moscow time, a systemd timer on the server (`gymlog-backup.timer`, made by `setup-server.sh`) runs `/opt/gymlog/backup.sh` as `deploy` (#16):
+
+1. `pg_dump` of the database (custom format, without owners and privileges), made while the app runs.
+2. The dump is read through to the end with `pg_restore`; a dump that can't be read doesn't count.
+3. It goes to Selectel's bucket `gymlog-backup-daily`, which deletes each dump after 30 days by itself.
+4. On Sundays it is first restored into a throwaway PostgreSQL container (no network, at most 256 MB of memory, about 40 MB used), whose tables and row counts are checked against production, and then goes to Selectel's `gymlog-backup-weekly` and Yandex Object Storage's `gymlog-backup-weekly-yandex`, which keep it for good and keep older versions of anything overwritten.
+
+Each run adds a line to `/opt/gymlog/backups.log`. A failure sends an email at once, with the end of the script's output; every Sunday an email sums the week up. The mails come from the notifications mailbox at Yandex Mail, over `smtp.yandex.ru:465` (port 25 is closed at Selectel, and Telegram's API can't be reached from the server). `deploy/prod.sh status` shows the last runs, and both `status` and `deploy` warn when the last good backup is more than a day old.
+
+The server's keys can only upload: Selectel's by the buckets' access policies (`PutObject` only), Yandex's by the role `storage.uploader`, which can't delete. So whoever took the server over couldn't wipe the backups. Nothing is encrypted.
+
+### Keys, and what to keep off the server
+
+Two git-ignored files on the developer's computer, filled in from the password manager:
+
+- `deploy/secrets/backup.env` (from `deploy/backup.env.example`): the upload keys and the notifications mailbox. `deploy/prod.sh backup-setup` sends it to `/opt/gymlog/backup.env` together with the script, and sends a test email.
+- `deploy/secrets/restore.env` (from `deploy/restore.env.example`): the keys that read the buckets. It never goes to the server.
+
+A restore after losing the server needs only what is kept elsewhere, in the password manager: the SSH key, the read keys of both storages, and access to the Selectel and Yandex Cloud accounts. The domain is at Selectel too: losing that account would cut `easygymlog.ru` off until it is back, a risk the owner accepted.
+
+### Making a backup now
+
+```bash
+deploy/prod.sh backup
+```
+
+It runs the same script as the timer, with the same emails.
+
+### Restoring
+
+```bash
+deploy/prod.sh backups
+deploy/prod.sh restore 2026-10-02
+```
+
+`backups` lists the dumps in Selectel (`--from yandex`: in Yandex). `restore` takes a date, from Selectel's daily bucket or else its weekly one (`--from yandex` for Yandex's), or a dump file. It first saves the production database as it is to `deploy/backups/before-restore-<time>.dump`, asks to type `restore`, reads the dump through, stops the app, makes the database anew from the dump, hands it to `gymlog_app` as deploys do, and starts the app. A wrong restore is undone with `deploy/prod.sh restore deploy/backups/before-restore-<time>.dump`.
+
+Records written after the dump come back from the devices that hold them (#40). What lives only on the server comes back as it was in the dump: Users, Logins, passwords, Invites and sessions. A device whose session is newer than the dump signs in again; a User created after the dump has to be invited again.
+
+When things go wrong:
+
+- **Bad data, the server works**: `restore` with the date before it went wrong.
+- **The server is lost**: a new VPS, set up as in the next section, deployed, then `restore`, then the A records pointed at it.
+- **The Selectel account is lost**: the same at another provider, with `restore <date> --from yandex`; only weekly dumps are there.
+
 ## Setting up a new server
 
 Once, for a fresh Ubuntu 24.04 VPS with 1 GB of RAM or more:
@@ -94,10 +141,11 @@ Once, for a fresh Ubuntu 24.04 VPS with 1 GB of RAM or more:
    ssh root@<server> 'bash -s' < deploy/setup-server.sh
    ```
 
-   It adds 1 GB of swap, installs Docker from Ubuntu's packages with the Docker Hub mirrors, creates the `deploy` user (signing in with root's SSH keys), creates `/opt/gymlog` with an `.env` holding random `POSTGRES_PASSWORD` and `APP_DATABASE_PASSWORD`, lets only SSH, HTTP and HTTPS through the firewall, and turns SSH passwords off (`/etc/ssh/sshd_config.d/10-gymlog.conf`): everyone signs in with a key, `root` too.
+   It adds 1 GB of swap, installs Docker from Ubuntu's packages with the Docker Hub mirrors, creates the `deploy` user (signing in with root's SSH keys), creates `/opt/gymlog` with an `.env` holding random `POSTGRES_PASSWORD` and `APP_DATABASE_PASSWORD`, sets up the nightly backup timer, lets only SSH, HTTP and HTTPS through the firewall, and turns SSH passwords off (`/etc/ssh/sshd_config.d/10-gymlog.conf`): everyone signs in with a key, `root` too.
 4. Check that `ssh deploy@easygymlog.ru` works, then deploy as above. The first deploy pulls `postgres` and `caddy`, and Caddy gets the certificates within a minute.
-5. Set up the Owner with `deploy/prod.sh owner-invite`.
-6. Run `deploy/prod.sh check`.
+5. Set up the Owner with `deploy/prod.sh owner-invite`, or restore the database as in Backups.
+6. Send the backup settings with `deploy/prod.sh backup-setup` and check that the test email arrives.
+7. Run `deploy/prod.sh check`.
 
 The script is safe to run again on a server already set up: it adds only what is missing and keeps the passwords there are. An `apt-get` upgrade of Docker on the way may stop the app for a few seconds. A server set up before #39 gets the app's database password and the SSH settings that way: keep an SSH session open, run the script as in step 3, check that a new `ssh deploy@easygymlog.ru` and `ssh root@easygymlog.ru` still let you in, then deploy, which hands the database to the app's role, and run `deploy/prod.sh check`.
 

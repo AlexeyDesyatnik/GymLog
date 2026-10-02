@@ -6,8 +6,12 @@
 #   deploy/prod.sh rollback         go back to the version deployed before the current one
 #   deploy/prod.sh owner-invite     print the Owner's first Invite
 #   deploy/prod.sh owner-password   print a Reset link for the Owner
-#   deploy/prod.sh status           show the containers and which version runs
+#   deploy/prod.sh status           show the containers, which version runs and the last backups
 #   deploy/prod.sh check            check from outside that only what should be open is
+#   deploy/prod.sh backup-setup     send the backup settings to the server and a test email
+#   deploy/prod.sh backup           make a backup now, as the nightly timer does
+#   deploy/prod.sh backups [--from yandex]           list the dumps in the storage
+#   deploy/prod.sh restore <date|file> [--from yandex]   replace the database with a dump
 set -euo pipefail
 
 SERVER="${GYMLOG_SERVER:-deploy@easygymlog.ru}"
@@ -44,7 +48,7 @@ deploy() {
 
   echo "Sending it to $SERVER"
   docker save "gymlog:$version" | gzip | ssh "$SERVER" "gunzip | docker load"
-  scp -q deploy/compose.yaml deploy/Caddyfile "$SERVER:$DIR/"
+  scp -q deploy/compose.yaml deploy/Caddyfile deploy/backup.sh deploy/s3.sh "$SERVER:$DIR/"
 
   echo "Starting it"
   on_server "$version" <<'EOF'
@@ -89,6 +93,7 @@ done
 docker image prune -f >/dev/null
 EOF
   echo "Deployed $version: https://easygymlog.ru"
+  backup_warning
 }
 
 rollback() {
@@ -107,7 +112,118 @@ docker compose ps
 echo
 echo "Versions on the server (current and previous share an ID with the commit they came from):"
 docker image ls gymlog --format '{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}'
+echo
+echo "Last backups (backups.log):"
+tail -n 7 backups.log 2>/dev/null || echo "none yet"
 EOF
+  backup_warning
+}
+
+# Warns loudly when the last good backup is more than a day old, or there is none.
+backup_warning() {
+  local last
+  last=$(on_server <<'EOF'
+grep ' ok ' backups.log 2>/dev/null | tail -n 1 | cut -d ' ' -f 1
+EOF
+  )
+  if [ -z "$last" ]; then
+    echo "WARNING: the server has made no backup yet (docs/deploy.md, Backups)" >&2
+  elif [ $(($(date +%s) - $(date -d "$last" +%s))) -gt $((26 * 3600)) ]; then
+    echo "WARNING: the last good backup is from $last, more than a day ago; see docs/deploy.md, Backups" >&2
+  fi
+}
+
+# Sends the upload keys and the mailbox (deploy/secrets/backup.env) and the backup script to the
+# server, then a test email.
+backup_setup() {
+  [ -f deploy/secrets/backup.env ] || fail "no deploy/secrets/backup.env; see docs/deploy.md, Backups"
+  scp -q deploy/backup.sh deploy/s3.sh "$SERVER:$DIR/"
+  ssh "$SERVER" "umask 077 && cat > $DIR/backup.env" < deploy/secrets/backup.env
+  ssh -n "$SERVER" "cd $DIR && bash backup.sh test-mail"
+  echo "Sent a test email; check that it arrived"
+}
+
+# The read keys, which stay on this computer.
+read_keys() {
+  [ -f deploy/secrets/restore.env ] || fail "no deploy/secrets/restore.env; see docs/deploy.md, Backups"
+  set -a
+  . deploy/secrets/restore.env
+  set +a
+  . deploy/s3.sh
+}
+
+backups() {
+  read_keys
+  if [ "${1:-}" = "--from" ] && [ "${2:-}" = yandex ]; then
+    echo "Yandex, weekly:"
+    s3_dumps yandex "$YANDEX_WEEKLY" | sed 's/^/  /'
+  else
+    echo "Selectel, daily (30 days):"
+    s3_dumps selectel "$SELECTEL_DAILY" | sed 's/^/  /'
+    echo "Selectel, weekly:"
+    s3_dumps selectel "$SELECTEL_WEEKLY" | sed 's/^/  /'
+  fi
+}
+
+# Replaces the production database with a dump: a file here, or the dump of a date from the
+# storage. The database as it was is saved here first, so a wrong restore can be undone by
+# restoring that file.
+restore() {
+  local source=${1:-} from=selectel dump saved
+  [ -n "$source" ] || fail "restore what? A date, as in deploy/prod.sh backups, or a dump file"
+  [ "${2:-}" != "--from" ] || from=${3:-}
+  mkdir -p deploy/backups
+  if [ -f "$source" ]; then
+    dump=$source
+  else
+    [[ $source =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || fail "$source is neither a file nor a date like 2026-10-02"
+    read_keys
+    dump=deploy/backups/$from-$source.dump
+    case $from in
+      selectel)
+        s3 selectel "$SELECTEL_DAILY/$source.dump" -o "$dump" 2>/dev/null ||
+          s3 selectel "$SELECTEL_WEEKLY/$source.dump" -o "$dump" ||
+          { rm -f "$dump"; fail "Selectel has no dump of $source; deploy/prod.sh backups lists them"; }
+        ;;
+      yandex)
+        s3 yandex "$YANDEX_WEEKLY/$source.dump" -o "$dump" ||
+          { rm -f "$dump"; fail "Yandex has no dump of $source; deploy/prod.sh backups --from yandex lists them"; }
+        ;;
+      *) fail "--from takes selectel or yandex" ;;
+    esac
+  fi
+
+  saved=deploy/backups/before-restore-$(date +%Y-%m-%dT%H%M%S).dump
+  echo "Saving the database as it is now to $saved"
+  ssh "$SERVER" "cd $DIR && docker compose exec -T postgres pg_dump -U gymlog -d gymlog -Fc --no-owner --no-acl" > "$saved"
+
+  echo
+  echo "This replaces everything in the production database with $dump ($(wc -c < "$dump") bytes)."
+  echo "The app stops for a minute. The database as it is now is in $saved."
+  read -r -p "Type restore to go on: " answer
+  [ "$answer" = restore ] || fail "nothing changed"
+
+  ssh "$SERVER" "cat > $DIR/restore.dump" < "$dump"
+  on_server <<'EOF' || fail "the restore failed; deploy/prod.sh restore with the saved file puts the database back"
+set -euo pipefail
+set -a; . ./.env; set +a
+trap 'rm -f restore.dump' EXIT
+echo "Reading the dump through before touching anything"
+docker compose exec -T postgres pg_restore -f /dev/null < restore.dump
+docker compose stop app
+# A database made anew, so nothing of the old one stays; devices notice it's another one (#40).
+# Input from nowhere: this script itself comes on the standard input, which exec would take.
+docker compose exec -T postgres dropdb -U gymlog --force gymlog < /dev/null
+docker compose exec -T postgres createdb -U gymlog gymlog < /dev/null
+docker compose exec -T postgres pg_restore -U gymlog -d gymlog --no-owner --no-acl --exit-on-error < restore.dump
+# Handed to the app's role, as every deploy does.
+export DATABASE_SUPERUSER_URL="postgres://gymlog:$POSTGRES_PASSWORD@postgres:5432/gymlog"
+docker run --rm --network gymlog_default -e DATABASE_SUPERUSER_URL -e APP_DATABASE_PASSWORD \
+  gymlog:current node packages/server/src/app-role.ts
+docker compose up -d --wait --wait-timeout 120
+EOF
+  echo "Restored from $dump"
+  status
 }
 
 # Checks, from this computer, what an attacker would try first (#39); fails if any check does.
@@ -184,5 +300,9 @@ case "${1:-}" in
   owner-invite | owner-password) on_app "$1" ;;
   status) status ;;
   check) check ;;
-  *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1 ;;
+  backup-setup) backup_setup ;;
+  backup) ssh -n "$SERVER" "cd $DIR && bash backup.sh" ;;
+  backups) backups "${@:2}" ;;
+  restore) restore "${@:2}" ;;
+  *) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1 ;;
 esac
