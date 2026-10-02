@@ -33,6 +33,7 @@ import {
   setNewPassword,
   signIn,
   signUp,
+  type Database,
   type SignInOutcome,
 } from "./users.ts";
 import { records, sessions, users } from "./db/schema.ts";
@@ -293,16 +294,21 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (!userId) return reply;
     const after = Number(request.query.after ?? 0);
     if (!Number.isSafeInteger(after) || after < 0) return reply.code(400).send({ error: "after must be a cursor" });
-    const rows = await db
-      .select()
-      .from(records)
-      .where(and(eq(records.ownerId, userId), gt(records.seq, after)))
-      .orderBy(asc(records.seq))
-      .limit(BATCH_LIMIT);
+    // On one connection, so the identity is that of the database the records come from.
+    const { rows, identity } = await db.transaction(async (tx) => ({
+      rows: await tx
+        .select()
+        .from(records)
+        .where(and(eq(records.ownerId, userId), gt(records.seq, after)))
+        .orderBy(asc(records.seq))
+        .limit(BATCH_LIMIT),
+      identity: await databaseIdentity(tx),
+    }));
     return {
       records: rows.map((row) => ({ ...(row.data as object), type: row.type, ownerId: row.ownerId }) as SyncRecord),
       cursor: rows.at(-1)?.seq ?? after,
       more: rows.length === BATCH_LIMIT,
+      databaseIdentity: identity,
     };
   });
 
@@ -314,6 +320,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       await database.close();
     },
   };
+}
+
+/**
+ * Which database this is: the PostgreSQL cluster's system identifier and the database's OID.
+ * Restoring a dump makes the database anew, so the identity changes by itself and a restore can't
+ * forget to change it. Deploys and restarts keep it; anything else that makes the database or the
+ * cluster anew changes it too, which only costs devices sending everything once more.
+ */
+async function databaseIdentity(db: Pick<Database, "execute">): Promise<string> {
+  const { rows } = await db.execute<{ identity: string }>(sql`select
+    (select system_identifier from pg_control_system())::text || '/' ||
+    (select oid from pg_database where datname = current_database())::text as identity`);
+  return rows[0]!.identity;
 }
 
 function idOf(item: unknown): string | null {

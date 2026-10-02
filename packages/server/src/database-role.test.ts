@@ -12,20 +12,20 @@ async function connect(databaseUrl: string): Promise<pg.Client> {
 }
 
 test("a database the server used as the superuser keeps its Users and Workouts once handed to the app's role, and sync goes on", async () => {
-  const before = await startTestServer({ connectAs: "superuser" });
-  const phone = before.device();
+  const server = await startTestServer({ connectAs: "superuser" });
+  const phone = server.device();
   await phone.signUp("alexey");
   const planned = await phone.journal.createWorkout(localDate("2026-09-28"));
   await phone.journal.setPlan(planned.id, "squat 100x5x3");
   await phone.journal.sync.now();
 
-  const after = await before.handDatabaseToApp();
-  const computer = after.device();
+  await server.handDatabaseToApp();
+  const computer = server.device();
   await computer.signIn("alexey");
   const added = await computer.journal.createWorkout(localDate("2026-09-30"));
   await computer.journal.sync.now();
 
-  const laptop = after.device();
+  const laptop = server.device();
   await laptop.signIn("alexey");
   expect((await laptop.journal.getWorkout(planned.id))?.planNotation).toBe("squat 100x5x3");
   expect((await laptop.journal.listWorkouts()).map((w) => w.id).sort()).toEqual([planned.id, added.id].sort());

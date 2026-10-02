@@ -7,11 +7,16 @@ import { createOwnerInvite, createOwnerResetLink, openDatabase } from "../users.
 import { startServer } from "../server.ts";
 import { handToApp } from "./postgres.ts";
 
+/** The database as a backup took it: a copy no server connects to. */
+export interface Dump {
+  superuserUrl: string;
+}
+
 /** The real server on a database of its own. */
 export interface TestServer {
   url: string;
-  /** What the server connects to its database with. */
-  databaseUrl: string;
+  /** What the server connects to its database with now. */
+  readonly databaseUrl: string;
   /**
    * A new device syncing with this server, not signed in yet; its local store is empty, or
    * the one of this name when given.
@@ -24,11 +29,19 @@ export interface TestServer {
   /** A fresh Invite from the test's Owner, who becomes a User the first time. */
   inviteFromOwner(): Promise<string>;
   /**
-   * Hands the database, with all it holds, to the app's role, as deploys do since #39, and starts
-   * the server on it again, connected as the app's role. This server stops, and its devices
-   * with it.
+   * Hands the database, with all it holds, to the app's role, as every deploy does since #39,
+   * and starts the server on it again, connected as the app's role, at the same address: its
+   * devices go on syncing with it.
    */
-  handDatabaseToApp(): Promise<TestServer>;
+  handDatabaseToApp(): Promise<void>;
+  /** A dump of the database as it is now, as the nightly backup takes; the server stops for a moment to take it. */
+  dump(): Promise<Dump>;
+  /**
+   * Replaces the database with the dump, as `deploy/prod.sh restore` does: a database made anew
+   * from it, handed to the app's role, and the server started on it again at the same address.
+   * Its devices keep what they hold and go on syncing with it.
+   */
+  restore(dump: Dump): Promise<void>;
 }
 
 /** One browser: a Journal on its own local store and a cookie jar of its own. */
@@ -60,6 +73,8 @@ export interface Device {
   expireSession(): void;
   /** How many requests this device has sent to the server, answered or not. */
   requestsSent(): number;
+  /** How many records this device has sent to the server in its pushes, answered or not. */
+  recordsPushed(): number;
   /** Sets this device's clock to this time, in milliseconds; it ticks by 1 ms per reading from there. */
   setClock(time: number): void;
   /** Closes the app on this device and opens it again, still signed in and on the same connection. */
@@ -78,20 +93,18 @@ let databaseCount = 0;
 export async function startTestServer({
   connectAs = "app",
 }: { connectAs?: "app" | "superuser" } = {}): Promise<TestServer> {
-  const superuserUrl = await createDatabase();
-  return serveDatabase(connectAs === "app" ? await handToApp(superuserUrl) : superuserUrl, superuserUrl);
-}
+  let current = await serveDatabase(await createDatabase(), connectAs, 0);
+  const url = current.server.url;
+  const port = Number(new URL(url).port);
+  onTestFinished(() => current.stop());
 
-/** The server connected with this URL to the database this superuser's URL connects to. */
-async function serveDatabase(databaseUrl: string, superuserUrl: string): Promise<TestServer> {
-  const server = await startServer({ databaseUrl, host: "127.0.0.1", port: 0 });
-  const database = await openDatabase(databaseUrl);
-  const stop = once(async () => {
-    await server.close();
-    await database.close();
-  });
-  onTestFinished(stop);
-  const ownerInvite = () => createOwnerInvite(database.db);
+  /** Stops the server and starts it again at the same address, on the database this superuser's URL connects to. */
+  async function serveAgain(superuserUrl: string, as: "app" | "superuser") {
+    await current.stop();
+    current = await serveDatabase(superuserUrl, as, port);
+  }
+
+  const ownerInvite = () => createOwnerInvite(current.database.db);
   /** The owner who invites the users of the test; signed in on a device of their own once needed. */
   let owner: Promise<Device> | undefined;
   async function inviteFromOwner(): Promise<string> {
@@ -109,7 +122,7 @@ async function serveDatabase(databaseUrl: string, superuserUrl: string): Promise
       name: store,
       now: clock.read,
       server: {
-        url: server.url,
+        url,
         fetch: connection.fetch,
         onOnline: connection.onOnline,
         timeoutMs: DEVICE_TIMEOUT_MS,
@@ -132,18 +145,47 @@ async function serveDatabase(databaseUrl: string, superuserUrl: string): Promise
   }
 
   return {
-    url: server.url,
-    databaseUrl,
+    url,
+    get databaseUrl() {
+      return current.databaseUrl;
+    },
     device(store = uniqueJournalName()) {
       return openDevice(store, deviceConnection(), tickingClock());
     },
     ownerInvite,
-    ownerResetLink: () => createOwnerResetLink(database.db),
+    ownerResetLink: () => createOwnerResetLink(current.database.db),
     inviteFromOwner,
-    async handDatabaseToApp() {
-      await stop();
-      return serveDatabase(await handToApp(superuserUrl), superuserUrl);
+    handDatabaseToApp: () => serveAgain(current.superuserUrl, "app"),
+    async dump() {
+      const live = current;
+      // A database can be copied only while nobody is connected to it.
+      await live.stop();
+      const dump = { superuserUrl: await createDatabase(live.superuserUrl) };
+      current = await serveDatabase(live.superuserUrl, live.connectAs, port);
+      return dump;
     },
+    restore: async (dump) => serveAgain(await createDatabase(dump.superuserUrl), current.connectAs),
+  };
+}
+
+/**
+ * The server, and the test's own connection, on the database this superuser's URL connects to,
+ * connected as the app's role, to which the database is handed first, or as the superuser.
+ */
+async function serveDatabase(superuserUrl: string, connectAs: "app" | "superuser", port: number) {
+  const databaseUrl = connectAs === "app" ? await handToApp(superuserUrl) : superuserUrl;
+  const server = await startServer({ databaseUrl, host: "127.0.0.1", port });
+  const database = await openDatabase(databaseUrl);
+  return {
+    server,
+    database,
+    databaseUrl,
+    superuserUrl,
+    connectAs,
+    stop: once(async () => {
+      await server.close();
+      await database.close();
+    }),
   };
 }
 
@@ -167,6 +209,7 @@ type ConnectionControl = Pick<
   | "goOnline"
   | "expireSession"
   | "requestsSent"
+  | "recordsPushed"
 >;
 
 /** A device's network and cookies: what stays the same when the app is closed and opened again. */
@@ -185,9 +228,12 @@ function deviceConnection(): Connection {
   let stalling = false;
   const onlineListeners = new Set<() => void>();
   let requestsSent = 0;
+  let recordsPushed = 0;
 
   const connectionFetch: typeof fetch = async (input, init) => {
     requestsSent++;
+    const pushing = String(input).includes("/api/sync/push");
+    if (pushing) recordsPushed += (JSON.parse(String(init?.body)) as { records: unknown[] }).records.length;
     if (offline) throw new TypeError("fetch failed: offline");
     if (stalling) {
       stalling = false;
@@ -196,7 +242,6 @@ function deviceConnection(): Connection {
         init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
       });
     }
-    const pushing = String(input).includes("/api/sync/push");
     const response = await jar.fetch(input, init);
     if (droppingMidPush && pushing) {
       droppingMidPush = false;
@@ -225,6 +270,7 @@ function deviceConnection(): Connection {
       },
       expireSession: jar.clear,
       requestsSent: () => requestsSent,
+      recordsPushed: () => recordsPushed,
     },
   };
 }
@@ -243,14 +289,18 @@ function tickingClock(): Clock {
   };
 }
 
-/** A new, empty database in the test run's PostgreSQL; returns how the superuser connects to it. */
-async function createDatabase(): Promise<string> {
+/**
+ * A new database in the test run's PostgreSQL, empty or a copy of the one this superuser's URL
+ * connects to, which nobody may be connected to; returns how the superuser connects to it.
+ */
+async function createDatabase(copyOf?: string): Promise<string> {
   const url = new URL(inject("postgresUrl"));
   const name = `test_${process.pid}_${++databaseCount}`;
   const admin = new pg.Client({ connectionString: url.href });
   await admin.connect();
   try {
-    await admin.query(`CREATE DATABASE ${name}`);
+    const template = copyOf ? ` TEMPLATE ${new URL(copyOf).pathname.slice(1)}` : "";
+    await admin.query(`CREATE DATABASE ${name}${template}`);
   } finally {
     await admin.end();
   }

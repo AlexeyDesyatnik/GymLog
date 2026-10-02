@@ -93,6 +93,11 @@ export interface PullAnswer {
   cursor: number;
   /** More records wait after this page. */
   more: boolean;
+  /**
+   * The server database's identity, different once it is restored from a backup: the cursor
+   * means nothing in another database, and records sent after the backup are gone from it.
+   */
+  databaseIdentity: string;
 }
 
 /** Who is signed in on a device, as the server knows from its session. */

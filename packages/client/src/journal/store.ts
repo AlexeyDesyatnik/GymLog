@@ -18,6 +18,11 @@ export interface SyncProgress {
   ownerId: string;
   /** The server's sequence number of the last record pulled. */
   cursor: number;
+  /**
+   * The identity of the server's database the cursor is in (see PullAnswer); missing until the
+   * first pull, and on devices that last synced before identities existed.
+   */
+  databaseIdentity?: string;
 }
 
 /** The Journal's local store: one IndexedDB database of synced records. */

@@ -179,6 +179,14 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined, clock:
     for (;;) {
       const progress = (await db.syncProgress.get("sync"))!;
       const page = await api!<PullAnswer>(`/api/sync/pull?after=${progress.cursor}`);
+      // The server's database was restored from a backup: what was sent to it after the backup
+      // is gone, and the cursor means nothing there. Everything held here goes to it again,
+      // where the later change and deleting win as always, and pulling starts over.
+      if (progress.databaseIdentity !== undefined && page.databaseIdentity !== progress.databaseIdentity) {
+        await sendAllAgain(page.databaseIdentity);
+        await push(userId);
+        continue;
+      }
       const arrived = await writeAsSync(db, async () => {
         let stored = false;
         for (const { type, ownerId, ...record } of page.records) {
@@ -191,12 +199,20 @@ export function openSync(db: JournalDb, options: SyncOptions | undefined, clock:
           await table.put({ ...record, unsynced: 0 });
           stored = true;
         }
-        await db.syncProgress.update("sync", { cursor: page.cursor });
+        await db.syncProgress.update("sync", { cursor: page.cursor, databaseIdentity: page.databaseIdentity });
         return stored;
       });
       if (arrived) for (const listener of arrivalListeners) listener();
       if (!page.more) return;
     }
+  }
+
+  /** Marks every record held here, deleted, refused or sent, to be sent, and pulling to start over in this database. */
+  async function sendAllAgain(databaseIdentity: string): Promise<void> {
+    await writeAsSync(db, async () => {
+      for (const type of RECORD_TYPES) await recordTable(db, type).toCollection().modify({ unsynced: 1 });
+      await db.syncProgress.update("sync", { cursor: 0, databaseIdentity });
+    });
   }
 
   function now(): Promise<void> {
