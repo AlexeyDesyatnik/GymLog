@@ -131,10 +131,15 @@ When things go wrong:
 
 ## Setting up a new server
 
-Once, for a fresh Ubuntu 24.04 VPS with 1 GB of RAM or more:
+Once, for a fresh Ubuntu 24.04 VPS with 1 GB of RAM and 10 GB of disk or more. That is plenty: in #41 such a server used about 460 MB of RAM and 3.4 GB of disk, and the weekly test restore takes under 100 MB more.
 
 1. Point the A records of `easygymlog.ru` and `www.easygymlog.ru` at the server.
-2. Check that `ssh root@<server>` works with a key, and keep that session open until step 4 is done: the script turns SSH passwords off.
+2. Check that `ssh root@<server>` works with a key, and keep that session open until step 4 is done: the script turns SSH passwords off. If the provider didn't add the key when it made the server (Selectel may not offer to), add it once with root's password from the control panel; this works in PowerShell and in Git Bash alike:
+
+   ```bash
+   cat ~/.ssh/id_ed25519.pub | ssh root@<server> "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+   ```
+
 3. Run
 
    ```bash
@@ -142,10 +147,19 @@ Once, for a fresh Ubuntu 24.04 VPS with 1 GB of RAM or more:
    ```
 
    It adds 1 GB of swap, installs Docker from Ubuntu's packages with the Docker Hub mirrors, creates the `deploy` user (signing in with root's SSH keys), creates `/opt/gymlog` with an `.env` holding random `POSTGRES_PASSWORD` and `APP_DATABASE_PASSWORD`, sets up the nightly backup timer, lets only SSH, HTTP and HTTPS through the firewall, and turns SSH passwords off (`/etc/ssh/sshd_config.d/10-gymlog.conf`): everyone signs in with a key, `root` too.
-4. Check that `ssh deploy@easygymlog.ru` works, then deploy as above. The first deploy pulls `postgres` and `caddy`, and Caddy gets the certificates within a minute.
+4. Check that `ssh deploy@easygymlog.ru` works, then deploy as above. Until the A records reach this computer, run `prod.sh` with `GYMLOG_SERVER=deploy@<server>`. If SSH says the host key of `easygymlog.ru` changed, it still remembers the old server's: check that `ssh-keyscan -t ed25519 easygymlog.ru | ssh-keygen -lf -` shows the fingerprint `ssh-keygen -lF <server>` does, then forget the old one with `ssh-keygen -R easygymlog.ru`. The first deploy pulls `postgres` and `caddy`, and Caddy gets the certificates within a minute.
 5. Set up the Owner with `deploy/prod.sh owner-invite`, or restore the database as in Backups.
-6. Send the backup settings with `deploy/prod.sh backup-setup` and check that the test email arrives.
+6. Send the backup settings with `deploy/prod.sh backup-setup` and check that the test email arrives. Not on a server set up only to rehearse a restore: it would upload dumps under the same names as production.
 7. Run `deploy/prod.sh check`.
+
+**Moving to another server** while the old one still works, as in #41: set the new one up as above, with the A records pointed at it, then take a dump of the old one and `restore` that file on the new one:
+
+```bash
+ssh deploy@<old server> "cd /opt/gymlog && docker compose exec -T postgres pg_dump -U gymlog -d gymlog -Fc --no-owner --no-acl" > deploy/backups/old-server.dump
+deploy/prod.sh restore deploy/backups/old-server.dump
+```
+
+Then, on the old one as root, `systemctl disable --now gymlog-backup.timer` and `cd /opt/gymlog && docker compose stop`, so it no longer uploads dumps under the same names, and delete it. Whatever devices sent the old server after the dump reaches the new one by itself (#40).
 
 The script is safe to run again on a server already set up: it adds only what is missing and keeps the passwords there are. An `apt-get` upgrade of Docker on the way may stop the app for a few seconds. A server set up before #39 gets the app's database password and the SSH settings that way: keep an SSH session open, run the script as in step 3, check that a new `ssh deploy@easygymlog.ru` and `ssh root@easygymlog.ru` still let you in, then deploy, which hands the database to the app's role, and run `deploy/prod.sh check`.
 
